@@ -133,7 +133,7 @@ body::before{
 @keyframes flashBorder{0%,100%{border-color:rgba(240,62,62,0.3);}50%{border-color:rgba(240,62,62,0.8);}}
 
 /* ═══ MAIN LAYOUT ═══ */
-.layout{display:grid;grid-template-columns:340px 1fr;gap:10px;}
+.layout{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:10px;}
 
 /* ═══ CARD ═══ */
 .card{
@@ -481,7 +481,7 @@ body::before{
 
 /* ═══ MOBILE RESPONSIVE ═══ */
 @media (max-width:1200px) {
-  .layout{grid-template-columns:300px 1fr;}
+  .layout{grid-template-columns:1fr 1.2fr 1fr;}
 }
 @media (max-width:900px) {
   .layout{grid-template-columns:1fr 1fr;}
@@ -532,8 +532,8 @@ body::before{
 @media (max-width:640px) {
   .mobile-nav{display:block;}
   .wrap{padding-bottom:70px;}
-  .col-left,.col-center{display:none;}
-  .col-left.active,.col-center.active{display:flex;}
+  .col-left,.col-center,.col-right{display:none;}
+  .col-left.active,.col-center.active,.col-right.active{display:flex;}
 }
 
 /* VOLUME TAB */
@@ -658,7 +658,7 @@ body::before{
 <!-- MAIN LAYOUT -->
 <div class="layout">
 
-  <!-- ═══ COL LEFT ═══ -->
+  <!-- COL LEFT -->
   <div class="col-left" style="display:flex;flex-direction:column;gap:10px;">
 
     <!-- BIAIS -->
@@ -743,6 +743,57 @@ body::before{
       </div>
     </div>
 
+
+  </div><!-- /col-left -->
+
+  <!-- COL CENTER -->
+  <div class="col-center" style="display:flex;flex-direction:column;gap:10px;">
+
+    <!-- BRIEFING DU JOUR -->
+    <div class="card" style="border-color:rgba(240,180,41,0.35);background:linear-gradient(135deg,rgba(240,180,41,0.03),var(--bg1));">
+      <div class="card-hd" onclick="toggleCard(this)" style="background:linear-gradient(135deg,rgba(240,180,41,0.1),var(--bg2));border-bottom-color:rgba(240,180,41,0.25);">
+        <span style="color:var(--gold);font-size:11px;">⚡ BRIEFING DU JOUR — XauMitri49</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="last-update" id="briefingTime">—</span>
+          <span class="hd-toggle">▾</span>
+        </div>
+      </div>
+      <div class="card-bd">
+        <div id="briefingIdle" style="text-align:center;padding:6px 0 10px;">
+          <div style="font-size:11px;color:var(--text2);margin-bottom:12px;line-height:1.6;">
+            1 clic le matin → biais complet + annonces + COT + niveaux + risk<br>
+            <span style="font-size:9px;color:var(--text3);">~0.005$ par analyse · résultat sauvegardé pour la journée</span>
+          </div>
+          <div class="briefing-pair-select" style="justify-content:center;">
+            <span style="font-size:9px;color:var(--text3);margin-right:4px;">Paires :</span>
+            <button class="bp-chip selected" data-bp="XAUUSD" onclick="toggleBriefingPair('XAUUSD',this)">XAU/USD</button>
+            <button class="bp-chip selected" data-bp="XAGUSD" onclick="toggleBriefingPair('XAGUSD',this)">XAG/USD</button>
+            <button class="bp-chip" data-bp="DXY" onclick="toggleBriefingPair('DXY',this)">DXY</button>
+            <button class="bp-chip" data-bp="SPX500" onclick="toggleBriefingPair('SPX500',this)">SPX500</button>
+          </div>
+          <div style="font-size:8px;color:var(--text3);margin-bottom:8px;">Max 2 paires pour économiser tes crédits</div>
+          <button id="briefingBtn" onclick="generateBriefing()" style="display:inline-flex;align-items:center;gap:8px;padding:12px 28px;border-radius:8px;font-size:13px;font-weight:800;background:linear-gradient(135deg,var(--gold),#b8860b);color:#000;border:none;cursor:pointer;font-family:'Outfit',sans-serif;box-shadow:0 4px 20px rgba(240,180,41,0.35);transition:all 0.2s;">
+            🧠 Générer mon Briefing du Jour
+          </button>
+          <div id="briefingCachedNotice" style="display:none;margin-top:8px;font-size:9px;color:var(--green);">✅ Briefing du jour déjà généré</div>
+        </div>
+        <div id="briefingLoading" style="display:none;text-align:center;padding:20px;">
+          <div style="font-size:28px;display:inline-block;animation:spin 1s linear infinite;">⟳</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:8px;">Claude analyse le marché...</div>
+        </div>
+        <div id="briefingResult" style="display:none;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div class="ai-badge">⚡ Briefing du <span id="briefingDate">—</span></div>
+            <button onclick="clearBriefing()" style="font-size:9px;color:var(--text3);background:none;border:none;cursor:pointer;font-family:'Outfit',sans-serif;">↺ Regénérer</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;" id="briefingBiasCards"></div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;line-height:1.75;color:var(--text2);white-space:pre-wrap;" id="briefingText">—</div>
+          <div id="briefingVerdict" style="margin-top:8px;padding:10px 14px;border-radius:7px;font-size:12px;font-weight:700;text-align:center;border:1px solid;">—</div>
+        </div>
+      </div>
+    </div>
+
+
     <!-- SENTIMENT DU MARCHE -->
     <div class="card">
       <div class="card-hd" onclick="toggleCard(this)">
@@ -766,6 +817,12 @@ body::before{
       </div>
     </div>
 
+
+  </div><!-- /col-center -->
+
+  <!-- COL RIGHT -->
+  <div class="col-right" style="display:flex;flex-direction:column;gap:10px;">
+
     <!-- VOLUMES -->
     <div class="card">
       <div class="card-hd" onclick="toggleCard(this)">
@@ -780,6 +837,7 @@ body::before{
         <div style="font-size:8px;color:var(--text3);margin-top:6px;text-align:center;">Volumes relatifs 24h via Yahoo Finance</div>
       </div>
     </div>
+
 
     <!-- SESSIONS -->
     <div class="card">
@@ -830,6 +888,7 @@ body::before{
       </div>
     </div>
 
+
     <!-- NIVEAUX CLÉS -->
     <div class="card">
       <div class="card-hd" onclick="toggleCard(this)">
@@ -856,56 +915,7 @@ body::before{
         </div>
       </div>
 
-  </div><!-- /col-left -->
-
-  <!-- ═══ COL CENTER ═══ -->
-  <div class="col-center" style="display:flex;flex-direction:column;gap:10px;">
-
-    <!-- BRIEFING DU JOUR -->
-    <div class="card" style="border-color:rgba(240,180,41,0.35);background:linear-gradient(135deg,rgba(240,180,41,0.03),var(--bg1));">
-      <div class="card-hd" onclick="toggleCard(this)" style="background:linear-gradient(135deg,rgba(240,180,41,0.1),var(--bg2));border-bottom-color:rgba(240,180,41,0.25);">
-        <span style="color:var(--gold);font-size:11px;">⚡ BRIEFING DU JOUR — XauMitri49</span>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span class="last-update" id="briefingTime">—</span>
-          <span class="hd-toggle">▾</span>
-        </div>
-      </div>
-      <div class="card-bd">
-        <div id="briefingIdle" style="text-align:center;padding:6px 0 10px;">
-          <div style="font-size:11px;color:var(--text2);margin-bottom:12px;line-height:1.6;">
-            1 clic le matin → biais complet + annonces + COT + niveaux + risk<br>
-            <span style="font-size:9px;color:var(--text3);">~0.005$ par analyse · résultat sauvegardé pour la journée</span>
-          </div>
-          <div class="briefing-pair-select" style="justify-content:center;">
-            <span style="font-size:9px;color:var(--text3);margin-right:4px;">Paires :</span>
-            <button class="bp-chip selected" data-bp="XAUUSD" onclick="toggleBriefingPair('XAUUSD',this)">XAU/USD</button>
-            <button class="bp-chip selected" data-bp="XAGUSD" onclick="toggleBriefingPair('XAGUSD',this)">XAG/USD</button>
-            <button class="bp-chip" data-bp="DXY" onclick="toggleBriefingPair('DXY',this)">DXY</button>
-            <button class="bp-chip" data-bp="SPX500" onclick="toggleBriefingPair('SPX500',this)">SPX500</button>
-          </div>
-          <div style="font-size:8px;color:var(--text3);margin-bottom:8px;">Max 2 paires pour économiser tes crédits</div>
-          <button id="briefingBtn" onclick="generateBriefing()" style="display:inline-flex;align-items:center;gap:8px;padding:12px 28px;border-radius:8px;font-size:13px;font-weight:800;background:linear-gradient(135deg,var(--gold),#b8860b);color:#000;border:none;cursor:pointer;font-family:'Outfit',sans-serif;box-shadow:0 4px 20px rgba(240,180,41,0.35);transition:all 0.2s;">
-            🧠 Générer mon Briefing du Jour
-          </button>
-          <div id="briefingCachedNotice" style="display:none;margin-top:8px;font-size:9px;color:var(--green);">✅ Briefing du jour déjà généré</div>
-        </div>
-        <div id="briefingLoading" style="display:none;text-align:center;padding:20px;">
-          <div style="font-size:28px;display:inline-block;animation:spin 1s linear infinite;">⟳</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:8px;">Claude analyse le marché...</div>
-        </div>
-        <div id="briefingResult" style="display:none;">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-            <div class="ai-badge">⚡ Briefing du <span id="briefingDate">—</span></div>
-            <button onclick="clearBriefing()" style="font-size:9px;color:var(--text3);background:none;border:none;cursor:pointer;font-family:'Outfit',sans-serif;">↺ Regénérer</button>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;" id="briefingBiasCards"></div>
-          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;line-height:1.75;color:var(--text2);white-space:pre-wrap;" id="briefingText">—</div>
-          <div id="briefingVerdict" style="margin-top:8px;padding:10px 14px;border-radius:7px;font-size:12px;font-weight:700;text-align:center;border:1px solid;">—</div>
-        </div>
-      </div>
-    </div>
-
-  </div><!-- /col-center -->
+  </div><!-- /col-right -->
 
 </div><!-- /layout -->
 </div><!-- /wrap -->
@@ -920,7 +930,7 @@ body::before{
       <span class="mnav-icon">⚡</span>Briefing
     </button>
     <button class="mnav-btn" onclick="mobileNav('right',this)">
-      <span class="mnav-icon">📅</span>Calendrier
+      <span class="mnav-icon">📊</span>Données
     </button>
   </div>
 </nav>
@@ -1053,7 +1063,7 @@ function toggleCard(hd) {
 // MOBILE NAV
 // ═══════════════════════════════════════════
 function mobileNav(col, btn) {
-  document.querySelectorAll('.col-left,.col-center').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.col-left,.col-center,.col-right').forEach(c => c.classList.remove('active'));
   document.querySelectorAll('.mnav-btn').forEach(b => b.classList.remove('active'));
   document.querySelector('.col-' + col).classList.add('active');
   btn.classList.add('active');
@@ -1061,7 +1071,7 @@ function mobileNav(col, btn) {
 
 // Initialize mobile nav
 if(window.innerWidth <= 640) {
-  document.querySelectorAll('.col-left,.col-center').forEach(c => c.style.flexDirection='column');
+  document.querySelectorAll('.col-left,.col-center,.col-right').forEach(c => c.style.flexDirection='column');
   document.querySelector('.col-left').classList.add('active');
   document.querySelector('.mnav-btn').classList.add('active');
 }
