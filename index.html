@@ -945,6 +945,13 @@ body::before{
           <div class="level-row" style="border-left:3px solid rgba(167,139,250,0.85);"><span class="level-name">Fib 61.8%</span><span class="level-val" id="fib618" style="color:rgba(167,139,250,1);">&mdash;</span></div>
           <div class="level-row" style="border-left:3px solid rgba(167,139,250,0.5);"><span class="level-name">Fib 78.6%</span><span class="level-val" id="fib786" style="color:rgba(167,139,250,0.6);">&mdash;</span></div>
           <div id="fibContext" style="font-size:8px;color:var(--text3);margin-top:3px;padding:2px 4px;">Swing: calcul...</div>
+          <div class="divider"></div>
+          <div style="font-size:8px;letter-spacing:0.08em;text-transform:uppercase;color:var(--orange);font-weight:700;margin-bottom:6px;">&#x1F514; Alertes de Prix</div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;">
+            <input type="number" id="alertPriceInput" placeholder="Ex: 5200" step="0.01" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text1);font-family:'JetBrains Mono',monospace;font-size:10px;padding:5px 8px;border-radius:5px;outline:none;">
+            <button onclick="addPriceAlert()" style="background:var(--gold);color:var(--bg0);border:none;border-radius:5px;font-size:10px;font-weight:700;padding:5px 10px;cursor:pointer;">+ Alerte</button>
+          </div>
+          <div id="alertsList"></div>
         </div>
       </div>
 
@@ -1502,7 +1509,7 @@ async function loadPrices() {
       document.getElementById('lvlWL').textContent = fmt(wl[wl.length-1]);
     }
     updateATR(gd, 2);
-    updateFibonacci(gd, 2);
+    calcFibonacci(highs, lows, closes);
     checkPriceAlerts();
   }
   document.getElementById('biasTime').textContent = new Date().toLocaleTimeString('fr-FR',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC';
@@ -2400,6 +2407,23 @@ async function computeAllSentiment() {
   window._sentimentAvg = avg;
   
   document.getElementById('sentimentTime').textContent = new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) + ' UTC';
+}
+
+function getAIBiasAnalysis() {
+  if(!API_KEY) { openModal(); return; }
+  const d = biasData.d, h1 = biasData.h1, w = biasData.w;
+  const price = pairPrices['XAUUSD']?.price?.toFixed(2) || '--';
+  const dxy = pairPrices['DXY']?.price?.toFixed(3) || '--';
+  const proScore = window._biasProScore !== undefined ? Math.round((window._biasProScore+1)/2*100)+'%' : '--';
+  const data = 'XAU/USD: ' + price + ' | DXY: ' + dxy +
+    '\nBiais Weekly: ' + (w?w.bias:'--') + ' | Daily: ' + (d?d.bias:'--') + ' | H1: ' + (h1?h1.bias:'--') +
+    '\nEMA200 Daily: ' + (d?.above?'AU-DESSUS':'EN-DESSOUS') + ' | EMA200 H1: ' + (h1?.above?'AU-DESSUS':'EN-DESSOUS') +
+    '\nStructure D: HH=' + (d?.hh?'Oui':'Non') + ' HL=' + (d?.hl?'Oui':'Non') +
+    '\nScore Pro: ' + proScore;
+  callClaude(
+    'Analyste technique Gold. Analyse le biais en francais (max 120 mots):\n' + data + '\nDonne: 1) Biais dominant 2) Confluences 3) Zones a surveiller 4) Risque principal',
+    'aiAnalysisText', 'aiBiasBtn', '\ud83e\udde0 Analyser avec l\'IA'
+  );
 }
 
 function getAISentimentAnalysis() {
