@@ -1447,7 +1447,7 @@ async function fetchYahoo(symbol, range='5d', interval='1d') {
 // API CACHE (5 min)
 // ═══════════════════════════════════════
 const _apiCache = {};
-const CACHE_TTL = 5 * 60 * 1000;
+const CACHE_TTL = 2 * 60 * 1000;
 async function fetchYahooCached(sym, range, interval) {
   const key = sym+'_'+range+'_'+interval;
   const now = Date.now();
@@ -1460,28 +1460,29 @@ async function fetchYahooCached(sym, range, interval) {
 function fmt(v,d=2){ return v!=null ? parseFloat(v).toFixed(d) : '—'; }
 
 async function loadPrices() {
-  // Load all pair prices
-  const pairLoads = ALL_PAIRS.map(async p => {
-    try {
-      const d = await fetchYahoo(p.yahoo);
-      if(d) {
-        const price = d.meta.regularMarketPrice;
-        const closes = d.indicators.quote[0].close.filter(x=>x);
-        const prev = closes[closes.length-2] || price;
-        const chg = price - prev;
-        const chgPct = (chg/prev)*100;
-        pairPrices[p.id] = { price, chg, chgPct };
-      }
-    } catch(e) {}
-  });
-  await Promise.all(pairLoads);
+  // Load all pairs + weekly data IN PARALLEL (no duplicates!)
+  const pairDataMap = {};
+  const [gw] = await Promise.all([
+    fetchYahooCached('GC=F','4wk','1wk'),
+    ...ALL_PAIRS.map(async p => {
+      try {
+        const d = await fetchYahooCached(p.yahoo, '5d', '1d');
+        if(d) {
+          pairDataMap[p.id] = d;
+          const price = d.meta.regularMarketPrice;
+          const closes = d.indicators.quote[0].close.filter(x=>x);
+          const prev = closes[closes.length-2] || price;
+          const chg = price - prev;
+          const chgPct = (chg/prev)*100;
+          pairPrices[p.id] = { price, chg, chgPct };
+        }
+      } catch(e) {}
+    })
+  ]);
   renderPriceBar();
-  // Legacy references for existing code
-  const gd = await fetchYahoo('GC=F');
-  const sd = await fetchYahoo('SI=F');
-  const dd = await fetchYahoo('DX-Y.NYB');
-  const gw = await fetchYahoo('GC=F','4wk','1wk');
 
+  // Reuse gold data (NO extra API call!)
+  const gd = pairDataMap['XAUUSD'];
   if(gd) {
     goldData = gd;
     const q = gd.indicators.quote[0];
@@ -1489,37 +1490,30 @@ async function loadPrices() {
     const lows = q.low.filter(x=>x);
     const opens = q.open.filter(x=>x);
     const closes = q.close.filter(x=>x);
-
     document.getElementById('lvlHod').textContent = fmt(highs[highs.length-1]);
     document.getElementById('lvlLod').textContent = fmt(lows[lows.length-1]);
     document.getElementById('lvlOpen').textContent = fmt(opens[opens.length-1]);
     document.getElementById('lvlPDH').textContent = fmt(highs[highs.length-2]);
     document.getElementById('lvlPDL').textContent = fmt(lows[lows.length-2]);
-
     if(gw) {
       const wh = gw.indicators.quote[0].high.filter(x=>x);
       const wl = gw.indicators.quote[0].low.filter(x=>x);
       document.getElementById('lvlWH').textContent = fmt(wh[wh.length-1]);
       document.getElementById('lvlWL').textContent = fmt(wl[wl.length-1]);
     }
-
-    // Fetch TIPS data
-    try {
-      const tipData = await fetchYahooCached('TIP', '30d', '1d');
-      if(tipData) {
-        const tc = tipData.indicators.quote[0].close.filter(x=>x);
-        if(tc.length >= 2) window._tipsData = { price: tc[tc.length-1], chg: ((tc[tc.length-1]-tc[tc.length-2])/tc[tc.length-2]*100) };
-      }
-    } catch(e) {}
-    computeBias();
-    setTimeout(computeBiasProV2, 2000);
     updateATR(gd, 2);
     updateFibonacci(gd, 2);
     checkPriceAlerts();
   }
-
   document.getElementById('biasTime').textContent = new Date().toLocaleTimeString('fr-FR',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC';
-  computeAllSentiment();
+  // Launch bias + sentiment + volumes + TIPS in parallel
+  Promise.all([
+    computeBias(),
+    computeBiasProV2(),
+    computeAllSentiment(),
+    loadVolumes(),
+    loadTIPS()
+  ]).catch(e => console.log('Parallel load error:', e));
 }
 
 function updateMacroRiskScore() {
@@ -1565,8 +1559,8 @@ function calcEMA(data,p) {
 async function computeBias() {
   try {
     const [d300,h1d] = await Promise.all([
-      fetchYahoo('GC=F','300d','1d'),
-      fetchYahoo('GC=F','60d','1h'),
+      fetchYahooCached('GC=F','300d','1d'),
+      fetchYahooCached('GC=F','60d','1h'),
     ]);
 
     const results = {};
@@ -1957,9 +1951,9 @@ async function computeBiasProV2() {
   dashboard.innerHTML = '<div style="font-size:10px;color:var(--text3);text-align:center;padding:6px;"><span class="spin">\u27f3</span> Analyse structure...</div>';
   try {
     const [d300, h4d, h1d] = await Promise.all([
-      fetchYahoo(yahoo, '300d', '1d'),
-      fetchYahoo(yahoo, '60d', '1h'),
-      fetchYahoo(yahoo, '30d', '1h'),
+      fetchYahooCached(yahoo, '300d', '1d'),
+      fetchYahooCached(yahoo, '60d', '1h'),
+      fetchYahooCached(yahoo, '30d', '1h'),
     ]);
     const results = {};
     const pivotLen = 5, emaLen = 200;
@@ -2592,17 +2586,13 @@ function checkPriceAlerts() {
 // ═══════════════════════════════════════════
 renderPriceBar(); // initial empty render
 updateClock();
-loadPrices();
+loadPrices(); // loads everything in parallel
 checkCachedBriefing();
 checkIdealZone();
-
-setInterval(loadPrices, 60000);
-
-setTimeout(loadVolumes, 4000);
-setTimeout(loadTIPS, 3000);
 renderAlerts();
-setTimeout(computeAllSentiment, 5000);
-setInterval(() => { loadPrices(); computeAllSentiment(); loadVolumes(); loadTIPS(); }, 300000);
+
+// Refresh prices every 60s, full reload every 5min
+setInterval(loadPrices, 60000);
 setInterval(checkPriceAlerts, 15000);
 
 // Set default date for trade form
