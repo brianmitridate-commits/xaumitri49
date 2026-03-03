@@ -1476,8 +1476,6 @@ async function loadPrices() {
   });
   await Promise.all(pairLoads);
   renderPriceBar();
-  checkAlerts();
-
   // Legacy references for existing code
   const gd = await fetchYahoo('GC=F');
   const sd = await fetchYahoo('SI=F');
