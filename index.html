@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>XauMitri49 — Intelligence Institutionnelle</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#f0b429">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -1205,7 +1211,8 @@ function switchLotTab(tab, btn) {
 // ═══════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════
-let API_KEY = 'server-side';
+let API_KEY = localStorage.getItem('xaumitri49_apikey') || '';
+if(API_KEY === 'server-side') { API_KEY = ''; localStorage.removeItem('xaumitri49_apikey'); }
 async function callClaude(prompt, outputId, btnId, btnLabel) {
   if(!API_KEY) { openModal(); return; }
   const btn = document.getElementById(btnId);
@@ -1242,7 +1249,6 @@ async function claudeAPI(prompt, maxTokens=400) {
   throw new Error('Réponse vide');
 }
 
-if(!localStorage.getItem('xaumitri49_apikey')) localStorage.setItem('xaumitri49_apikey', API_KEY);
 let goldData = null, silverData = null, dxyData = null;
 let newsData = [];
 let biasData = { h1: null, d: null, w: null };
@@ -2689,6 +2695,10 @@ function checkPriceAlerts() {
 
 // INIT
 // ═══════════════════════════════════════════
+if(API_KEY) {
+  const t1 = document.getElementById('aiAnalysisText'); if(t1 && t1.textContent.includes('Active ta')) t1.textContent = '🔑 Clé API active. Clique pour analyser.';
+  const t2 = document.getElementById('aiSentimentText'); if(t2 && t2.textContent.includes('Active ta')) t2.textContent = '🔑 Clé API active. Clique pour analyser.';
+}
 renderPriceBar(); // initial empty render
 updateClock();
 loadPrices(); // loads everything in parallel
