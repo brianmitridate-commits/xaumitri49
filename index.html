@@ -726,28 +726,14 @@ body::before{
           <div id="biasProDashboard"><div style="font-size:10px;color:var(--text3);text-align:center;padding:6px;">⏳ Calcul structure...</div></div>
           <div id="biasProVerdict" style="margin-top:6px;padding:7px 10px;border-radius:5px;font-size:11px;font-weight:700;text-align:center;border:1px solid var(--border);background:var(--bg3);"></div>
           <div style="font-size:8px;color:var(--text3);margin-top:4px;text-align:center;" id="biasProWeights">Poids: D×3 H4×2 H1×1</div>
-        <div class="divider"></div>
-        <div id="atrBox" style="padding:8px;border-radius:7px;background:var(--bg2);border:1px solid var(--border);">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-            <span style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--orange);font-weight:700;">&#x1F4CF; ATR &mdash; VOLATILIT&Eacute;</span>
-            <span style="font-size:8px;color:var(--text3);">P&eacute;riode 14</span>
+        <div class="atr-box" id="atrBox" style="display:none;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="atr-label">ATR (14)</span>
+            <span class="atr-val" id="atrValue" style="color:var(--gold);">-</span>
           </div>
-          <div style="display:flex;gap:10px;">
-            <div style="flex:1;padding:6px;border-radius:6px;background:var(--bg3);text-align:center;">
-              <div style="font-size:8px;color:var(--text3);margin-bottom:3px;">ATR Daily</div>
-              <div id="atrDaily" style="font-size:16px;font-weight:800;color:var(--orange);font-family:'JetBrains Mono',monospace;">&mdash;</div>
-              <div style="font-size:8px;color:var(--text3);margin-top:2px;">pts</div>
-            </div>
-            <div style="flex:1;padding:6px;border-radius:6px;background:var(--bg3);text-align:center;">
-              <div style="font-size:8px;color:var(--text3);margin-bottom:3px;">Stop sugg&eacute;r&eacute;</div>
-              <div id="atrStop" style="font-size:16px;font-weight:800;color:var(--red);font-family:'JetBrains Mono',monospace;">&mdash;</div>
-              <div style="font-size:8px;color:var(--text3);margin-top:2px;">1.5x ATR</div>
-            </div>
-            <div style="flex:1;padding:6px;border-radius:6px;background:var(--bg3);text-align:center;">
-              <div style="font-size:8px;color:var(--text3);margin-bottom:3px;">Volatilit&eacute;</div>
-              <div id="atrLevel" style="font-size:12px;font-weight:700;">&mdash;</div>
-              <div id="atrBar" style="height:4px;border-radius:2px;background:var(--bg4);margin-top:4px;"><div id="atrBarFill" style="height:100%;border-radius:2px;width:50%;background:var(--orange);transition:width 0.3s;"></div></div>
-            </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="atr-hint" id="atrStop">Stop: -</span>
+            <span class="atr-hint" id="atrVolat">-</span>
           </div>
         </div>
         </div>
@@ -1077,8 +1063,6 @@ function renderPriceBar() {
     tipDiv.innerHTML = '<span class="ratio-label">TIPS</span><span class="ratio-val" style="color:var(--blue);">' + td.price.toFixed(2) + '</span><span class="ratio-signal ' + tipCls + '">' + tipSignal + '</span>';
     bar.appendChild(tipDiv);
   }
-
-
 
   bar.appendChild(btn);
 }
@@ -1520,8 +1504,6 @@ async function loadPrices() {
       document.getElementById('lvlWH').textContent = fmt(wh[wh.length-1]);
       document.getElementById('lvlWL').textContent = fmt(wl[wl.length-1]);
     }
-
-
 
     // Fetch TIPS data
     try {
@@ -2490,143 +2472,32 @@ function calcFibonacci(highs, lows, closes) {
   window._fibData = { swingHigh, swingLow, uptrend };
 }
 
-// ATR CALCULATION
-// ==========================================
 function calcATR(highs, lows, closes, period) {
   if(highs.length < period + 1) return null;
   const trs = [];
   for(let i = 1; i < highs.length; i++) {
-    const tr = Math.max(
-      highs[i] - lows[i],
-      Math.abs(highs[i] - closes[i-1]),
-      Math.abs(lows[i] - closes[i-1])
-    );
+    const tr = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i-1]), Math.abs(lows[i] - closes[i-1]));
     trs.push(tr);
   }
   if(trs.length < period) return null;
   let atr = trs.slice(0, period).reduce((a,b) => a+b, 0) / period;
-  for(let i = period; i < trs.length; i++) {
-    atr = (atr * (period - 1) + trs[i]) / period;
-  }
+  for(let i = period; i < trs.length; i++) { atr = (atr * (period - 1) + trs[i]) / period; }
   return atr;
 }
-
-function updateATR(highs, lows, closes, pairId) {
+function updateATR(data, decimals) {
+  if(!data) return;
+  const q = data.indicators.quote[0];
+  const highs = q.high.filter(x => x), lows = q.low.filter(x => x), closes = q.close.filter(x => x);
   const atr = calcATR(highs, lows, closes, 14);
   if(!atr) return;
-  const dec = pairId === 'XAUUSD' ? 1 : pairId === 'XAGUSD' ? 2 : 1;
-  document.getElementById('atrDaily').textContent = atr.toFixed(dec);
-  document.getElementById('atrStop').textContent = (atr * 1.5).toFixed(dec);
-  // Volatility gauge
-  const price = closes[closes.length-1];
-  const atrPct = (atr / price) * 100;
-  const atrEl = document.getElementById('atrLevel');
-  const barFill = document.getElementById('atrBarFill');
-  if(atrPct > 2.5) { atrEl.textContent = 'EXTREME'; atrEl.style.color = 'var(--red)'; barFill.style.width = '100%'; barFill.style.background = 'var(--red)'; }
-  else if(atrPct > 1.5) { atrEl.textContent = 'HAUTE'; atrEl.style.color = 'var(--orange)'; barFill.style.width = '75%'; barFill.style.background = 'var(--orange)'; }
-  else if(atrPct > 0.8) { atrEl.textContent = 'NORMALE'; atrEl.style.color = 'var(--green)'; barFill.style.width = '50%'; barFill.style.background = 'var(--green)'; }
-  else { atrEl.textContent = 'BASSE'; atrEl.style.color = 'var(--blue)'; barFill.style.width = '25%'; barFill.style.background = 'var(--blue)'; }
-  window._currentATR = atr;
-}
-
-
-// ==========================================
-// PRICE ALERTS SYSTEM
-// ==========================================
-let priceAlerts = JSON.parse(localStorage.getItem('xaumitri49_alerts') || '[]');
-
-function openAlertModal() {
-  document.getElementById('alertModal').style.display = 'flex';
-  renderAlerts();
-  if('Notification' in window && Notification.permission === 'default') {
-    Notification.requestPermission();
-  }
-}
-function closeAlertModal() { document.getElementById('alertModal').style.display = 'none'; }
-
-function addAlert() {
-  const pair = document.getElementById('alertPair').value;
-  const dir = document.getElementById('alertDir').value;
-  const price = parseFloat(document.getElementById('alertPrice').value);
-  if(!price || isNaN(price)) return;
-  priceAlerts.push({ id: Date.now(), pair, dir, price, triggered: false });
-  localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
-  document.getElementById('alertPrice').value = '';
-  renderAlerts();
-  updateAlertBadge();
-}
-
-function removeAlert(id) {
-  priceAlerts = priceAlerts.filter(a => a.id !== id);
-  localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
-  renderAlerts();
-  updateAlertBadge();
-}
-
-function renderAlerts() {
-  const list = document.getElementById('alertList');
-  if(!priceAlerts.length) { list.innerHTML = '<div style="text-align:center;padding:12px;font-size:10px;color:var(--text3);">Aucune alerte active</div>'; return; }
-  list.innerHTML = priceAlerts.map(a => {
-    const p = ALL_PAIRS.find(x => x.id === a.pair);
-    const curPrice = pairPrices[a.pair]?.price;
-    const dist = curPrice ? Math.abs(curPrice - a.price).toFixed(2) : '?';
-    const dirIcon = a.dir === 'above' ? '\u2191' : '\u2193';
-    const trigColor = a.triggered ? 'var(--text3)' : (a.dir === 'above' ? 'var(--green)' : 'var(--red)');
-    return '<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);'+(a.triggered?'opacity:0.5;':'')+'">' +
-      '<span style="color:'+trigColor+';font-size:14px;">'+dirIcon+'</span>' +
-      '<div style="flex:1;">' +
-        '<div style="font-size:11px;font-weight:700;color:'+(p?p.color:'var(--text1)')+';">'+a.pair+' <span style="color:var(--text1);">'+a.price+'</span></div>' +
-        '<div style="font-size:8px;color:var(--text3);">'+(a.triggered?'\u2705 D\u00e9clench\u00e9e':'\u23f3 Dist: '+dist+' pts')+'</div>' +
-      '</div>' +
-      '<button onclick="removeAlert('+a.id+')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;">\u2715</button>' +
-    '</div>';
-  }).join('');
-}
-
-function updateAlertBadge() {
-  const active = priceAlerts.filter(a => !a.triggered).length;
-  const badge = document.getElementById('alertBadge');
-  if(badge) {
-    badge.textContent = active;
-    badge.style.display = active > 0 ? 'flex' : 'none';
-  }
-}
-
-function checkAlerts() {
-  let changed = false;
-  priceAlerts.forEach(a => {
-    if(a.triggered) return;
-    const cur = pairPrices[a.pair]?.price;
-    if(!cur) return;
-    const hit = (a.dir === 'above' && cur >= a.price) || (a.dir === 'below' && cur <= a.price);
-    if(hit) {
-      a.triggered = true;
-      changed = true;
-      // Sound
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.frequency.value = a.dir === 'above' ? 880 : 440;
-        osc.type = 'sine';
-        gain.gain.value = 0.3;
-        osc.start(); osc.stop(ctx.currentTime + 0.5);
-      } catch(e) {}
-      // Notification
-      const dirTxt = a.dir === 'above' ? 'au-dessus de' : 'en-dessous de';
-      if('Notification' in window && Notification.permission === 'granted') {
-        new Notification('\ud83d\udd14 Alerte Prix!', { body: a.pair + ' ' + dirTxt + ' ' + a.price + ' (actuel: ' + cur.toFixed(2) + ')', icon: '\ud83d\udcc8' });
-      }
-      // Flash the alert button
-      const btn = document.getElementById('alertFloatBtn');
-      if(btn) { btn.style.animation = 'pulse 0.5s 3'; setTimeout(() => btn.style.animation = '', 2000); }
-    }
-  });
-  if(changed) {
-    localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
-    updateAlertBadge();
-  }
+  document.getElementById('atrBox').style.display = 'flex';
+  document.getElementById('atrValue').textContent = atr.toFixed(decimals || 2);
+  document.getElementById('atrStop').textContent = 'Stop: ' + (atr * 1.5).toFixed(decimals || 2);
+  const atrPct = (atr / closes[closes.length-1]) * 100;
+  const ve = document.getElementById('atrVolat');
+  if(atrPct > 3) { ve.textContent = 'HAUTE VOLAT.'; ve.style.color = 'var(--red)'; }
+  else if(atrPct > 1.5) { ve.textContent = 'VOLAT. NORMALE'; ve.style.color = 'var(--orange)'; }
+  else { ve.textContent = 'BASSE VOLAT.'; ve.style.color = 'var(--green)'; }
 }
 
 function updateFibonacci(data, decimals) {
@@ -2726,7 +2597,6 @@ function checkPriceAlerts() {
 // INIT
 // ═══════════════════════════════════════════
 renderPriceBar(); // initial empty render
-updateAlertBadge();
 updateClock();
 loadPrices();
 checkCachedBriefing();
@@ -2745,36 +2615,6 @@ setInterval(checkPriceAlerts, 15000);
 
 </script>
 
-<!-- PRICE ALERTS -->
-<button id="alertFloatBtn" onclick="openAlertModal()" style="position:fixed;bottom:80px;right:16px;z-index:900;width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--orange),var(--red));border:none;color:white;font-size:20px;cursor:pointer;box-shadow:0 4px 16px rgba(240,62,62,0.3);display:flex;align-items:center;justify-content:center;" title="Alertes de prix">&#x1F514;</button>
-<div id="alertBadge" style="display:none;position:fixed;bottom:114px;right:12px;z-index:901;background:var(--red);color:white;font-size:9px;font-weight:800;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;">0</div>
-
-<div id="alertModal" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
-  <div style="background:var(--bg1);border:1px solid var(--border);border-radius:12px;padding:20px;width:360px;max-width:90vw;max-height:80vh;overflow-y:auto;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-      <span style="font-size:13px;font-weight:700;color:var(--gold);">&#x1F514; Alertes de Prix</span>
-      <button onclick="closeAlertModal()" style="background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;">&times;</button>
-    </div>
-    <div style="display:flex;gap:6px;margin-bottom:12px;">
-      <select id="alertPair" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:8px;border-radius:6px;font-size:11px;">
-        <option value="XAUUSD">XAU/USD</option>
-        <option value="XAGUSD">XAG/USD</option>
-        <option value="DXY">DXY</option>
-        <option value="SPX500">SPX500</option>
-      </select>
-      <select id="alertDir" style="background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:8px;border-radius:6px;font-size:11px;">
-        <option value="above">Au-dessus &#x2191;</option>
-        <option value="below">En-dessous &#x2193;</option>
-      </select>
-    </div>
-    <div style="display:flex;gap:6px;margin-bottom:12px;">
-      <input id="alertPrice" type="number" step="0.01" placeholder="Prix cible" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:8px;border-radius:6px;font-size:13px;font-weight:700;font-family:'JetBrains Mono',monospace;">
-      <button onclick="addAlert()" style="padding:8px 16px;border-radius:6px;background:var(--gold);color:var(--bg0);font-size:11px;font-weight:700;border:none;cursor:pointer;">+ Ajouter</button>
-    </div>
-    <div id="alertList" style="display:flex;flex-direction:column;gap:6px;"></div>
-    <div style="margin-top:10px;font-size:8px;color:var(--text3);text-align:center;">Active les notifications navigateur pour recevoir les alertes</div>
-  </div>
-</div>
 
 </body>
 </html>
