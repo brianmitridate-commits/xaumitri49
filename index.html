@@ -553,6 +553,16 @@ body::before{
 .bp-chip.selected{background:var(--gold3);color:var(--gold);border-color:rgba(240,180,41,0.25);}
 .bp-chip:hover{border-color:var(--border2);}
 
+
+/* GOLD/SILVER RATIO */
+.ratio-pill{display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;background:linear-gradient(135deg,rgba(240,180,41,0.08),rgba(192,192,192,0.08));border:1px solid rgba(240,180,41,0.25);flex-shrink:0;cursor:default;}
+.ratio-pill .ratio-label{font-size:8px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);}
+.ratio-pill .ratio-val{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:800;color:var(--gold);}
+.ratio-pill .ratio-signal{font-size:8px;font-weight:700;padding:2px 6px;border-radius:8px;letter-spacing:0.05em;}
+.ratio-pill .ratio-signal.buy-silver{background:rgba(192,192,192,0.15);color:var(--silver);border:1px solid rgba(192,192,192,0.3);}
+.ratio-pill .ratio-signal.buy-gold{background:rgba(240,180,41,0.15);color:var(--gold);border:1px solid rgba(240,180,41,0.3);}
+.ratio-pill .ratio-signal.neutral{background:rgba(255,140,0,0.1);color:var(--orange);border:1px solid rgba(255,140,0,0.2);}
+
 /* SENTIMENT MODULE */
 .sent-module{margin-bottom:8px;}
 .sent-pair-block{margin-bottom:10px;padding:10px;border-radius:7px;background:var(--bg2);border:1px solid var(--border);}
@@ -996,6 +1006,26 @@ function renderPriceBar() {
       bar.appendChild(pill);
     });
     bar.appendChild(document.createElement('div')); // spacer handled by morePairsBtn
+  }
+
+
+  // Gold/Silver Ratio
+  const goldP = pairPrices['XAUUSD']?.price;
+  const silverP = pairPrices['XAGUSD']?.price;
+  if(goldP && silverP && silverP > 0) {
+    const ratio = goldP / silverP;
+    const ratioDiv = document.createElement('div');
+    ratioDiv.className = 'ratio-pill';
+    let signal = '', sigCls = 'neutral';
+    if(ratio > 90) { signal = 'SILVER SOUS-EVAL'; sigCls = 'buy-silver'; }
+    else if(ratio > 82) { signal = 'SILVER FAVOR.'; sigCls = 'buy-silver'; }
+    else if(ratio < 70) { signal = 'GOLD FAVOR.'; sigCls = 'buy-gold'; }
+    else if(ratio < 76) { signal = 'GOLD SOUS-EVAL'; sigCls = 'buy-gold'; }
+    else { signal = 'EQUILIBRE'; sigCls = 'neutral'; }
+    ratioDiv.innerHTML = '<span class="ratio-label">AU/AG</span><span class="ratio-val">' + ratio.toFixed(1) + '</span>' + (signal ? '<span class="ratio-signal ' + sigCls + '">' + signal + '</span>' : '');
+    ratioDiv.title = 'Gold/Silver Ratio: ' + ratio.toFixed(2) + '\n>85 = Silver sous-évalué\n<75 = Gold sous-évalué';
+    bar.appendChild(ratioDiv);
+    window._gsRatio = ratio;
   }
 
   bar.appendChild(btn);
@@ -2032,6 +2062,74 @@ function calcVolumeTrend(volumes) {
   return ((recent - older) / older) * 100;
 }
 
+
+// ═══════════════════════════════════════
+// RSI DIVERGENCE DETECTION
+// ═══════════════════════════════════════
+function detectRSIDivergence(closes, period) {
+  // Calculate RSI for each point in the last N days
+  const c = closes.filter(x => x != null && !isNaN(x));
+  if(c.length < period + 10) return null;
+  
+  // Get RSI values for the last 20 periods
+  const rsiValues = [];
+  for(let i = period + 1; i <= c.length; i++) {
+    const slice = c.slice(0, i);
+    rsiValues.push({ price: slice[slice.length-1], rsi: calcRSI(slice, period), idx: i-1 });
+  }
+  
+  if(rsiValues.length < 10) return null;
+  const recent = rsiValues.slice(-20);
+  
+  // Find local highs and lows in price (last 20 bars)
+  function findPeaks(arr, key) {
+    const peaks = [];
+    for(let i = 2; i < arr.length - 1; i++) {
+      if(arr[i][key] > arr[i-1][key] && arr[i][key] > arr[i-2][key] &&
+         arr[i][key] > arr[i+1][key]) {
+        peaks.push(arr[i]);
+      }
+    }
+    return peaks;
+  }
+  
+  function findTroughs(arr, key) {
+    const troughs = [];
+    for(let i = 2; i < arr.length - 1; i++) {
+      if(arr[i][key] < arr[i-1][key] && arr[i][key] < arr[i-2][key] &&
+         arr[i][key] < arr[i+1][key]) {
+        troughs.push(arr[i]);
+      }
+    }
+    return troughs;
+  }
+  
+  const priceHighs = findPeaks(recent, 'price');
+  const priceLows = findTroughs(recent, 'price');
+  const rsiHighs = findPeaks(recent, 'rsi');
+  const rsiLows = findTroughs(recent, 'rsi');
+  
+  // Bearish divergence: price makes higher high but RSI makes lower high
+  if(priceHighs.length >= 2 && rsiHighs.length >= 2) {
+    const ph1 = priceHighs[priceHighs.length-2], ph2 = priceHighs[priceHighs.length-1];
+    const rh1 = rsiHighs[rsiHighs.length-2], rh2 = rsiHighs[rsiHighs.length-1];
+    if(ph2.price > ph1.price && rh2.rsi < rh1.rsi && rh2.rsi > 55) {
+      return { type: 'bearish', label: 'DIV. BAISSIERE', desc: 'Prix \u2191 mais RSI \u2193 \u2014 retournement possible', icon: '\u26a0\ufe0f', cls: 'bear' };
+    }
+  }
+  
+  // Bullish divergence: price makes lower low but RSI makes higher low
+  if(priceLows.length >= 2 && rsiLows.length >= 2) {
+    const pl1 = priceLows[priceLows.length-2], pl2 = priceLows[priceLows.length-1];
+    const rl1 = rsiLows[rsiLows.length-2], rl2 = rsiLows[rsiLows.length-1];
+    if(pl2.price < pl1.price && rl2.rsi > rl1.rsi && rl2.rsi < 45) {
+      return { type: 'bullish', label: 'DIV. HAUSSIERE', desc: 'Prix \u2193 mais RSI \u2191 \u2014 rebond possible', icon: '\ud83d\udfe2', cls: 'bull' };
+    }
+  }
+  
+  return null;
+}
+
 async function computeSentimentForPair(pairId, yahooSym, color) {
   try {
     const [daily, hourly] = await Promise.all([
@@ -2109,6 +2207,10 @@ async function computeSentimentForPair(pairId, yahooSym, color) {
       h1Rsi = calcRSI(hc, 14);
     }
     
+
+    // 6. RSI Divergence detection
+    let divergence = detectRSIDivergence(closes, 14);
+
     // Weighted average: RSI(25%) + Momentum(25%) + EMA(20%) + Volume(15%) + Candle(15%)
     const totalScore = Math.round(
       rsiScore * 0.25 +
@@ -2132,6 +2234,7 @@ async function computeSentimentForPair(pairId, yahooSym, color) {
       volScore,
       candleScore,
       h1Rsi: h1Rsi ? Math.round(h1Rsi) : null,
+      divergence: divergence,
     };
   } catch(e) {
     return null;
@@ -2196,6 +2299,7 @@ async function computeAllSentiment() {
         '<div class="sent-factor"><span class="sent-factor-name">Bougie</span><span class="sent-factor-val '+candleCls+'">'+(r.candleScore>=60?'\ud83d\udfe2 Haussier':r.candleScore<=40?'\ud83d\udd34 Baissier':'\ud83d\udfe1 Neutre')+'</span></div>' +
         (r.h1Rsi !== null ? '<div class="sent-factor"><span class="sent-factor-name">RSI H1</span><span class="sent-factor-val '+(r.h1Rsi>60?'bull':r.h1Rsi<40?'bear':'neutral')+'">'+r.h1Rsi+'</span></div>' : '') +
       '</div>' +
+      (r.divergence ? '<div style="margin-top:6px;padding:5px 8px;border-radius:5px;font-size:9px;font-weight:700;display:flex;align-items:center;gap:6px;border:1px solid '+(r.divergence.cls==='bull'?'rgba(16,217,106,0.3)':'rgba(240,62,62,0.3)')+';background:'+(r.divergence.cls==='bull'?'rgba(16,217,106,0.06)':'rgba(240,62,62,0.06)')+';"><span>'+r.divergence.icon+'</span><span style="color:'+(r.divergence.cls==='bull'?'var(--green)':'var(--red)')+';">'+r.divergence.label+'</span><span style="color:var(--text3);font-weight:400;">'+r.divergence.desc+'</span></div>' : '') +
     '</div>';
   }).join('');
   
@@ -2207,7 +2311,7 @@ async function computeAllSentiment() {
   const gTxt = avg >= 70 ? 'SENTIMENT TR\u00c8S HAUSSIER' : avg >= 60 ? 'SENTIMENT HAUSSIER' : avg >= 45 ? 'SENTIMENT NEUTRE / MIXTE' : avg >= 30 ? 'SENTIMENT BAISSIER' : 'SENTIMENT TR\u00c8S BAISSIER';
   const gv = document.getElementById('sentimentGlobalVerdict');
   if(gv) {
-    gv.innerHTML = gIcon + ' ' + gTxt + ' <span style="font-family:JetBrains Mono,monospace;margin-left:8px;">'+avg+'%</span>';
+    gv.innerHTML = gIcon + ' ' + gTxt + (window._gsRatio ? ' <span style="font-size:9px;margin-left:6px;padding:2px 6px;border-radius:8px;background:rgba(240,180,41,0.1);border:1px solid rgba(240,180,41,0.2);color:var(--gold);">AU/AG: '+window._gsRatio.toFixed(1)+'</span>' : '') + ' <span style="font-family:JetBrains Mono,monospace;margin-left:8px;">'+avg+'%</span>';
     gv.style.color = gCol;
     gv.style.borderColor = gCol;
     gv.style.background = avg >= 60 ? 'rgba(16,217,106,0.06)' : avg <= 40 ? 'rgba(240,62,62,0.06)' : 'rgba(255,140,0,0.06)';
