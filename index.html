@@ -968,12 +968,19 @@ body::before{
           <div class="level-row" style="border-left:3px solid rgba(167,139,250,0.5);"><span class="level-name">Fib 78.6%</span><span class="level-val" id="fib786" style="color:rgba(167,139,250,0.6);">&mdash;</span></div>
           <div id="fibContext" style="font-size:8px;color:var(--text3);margin-top:3px;padding:2px 4px;">Swing: calcul...</div>
           <div class="divider"></div>
-          <div style="font-size:8px;letter-spacing:0.08em;text-transform:uppercase;color:var(--orange);font-weight:700;margin-bottom:6px;">&#x1F514; Alertes de Prix</div>
+          <div style="font-size:8px;letter-spacing:0.08em;text-transform:uppercase;color:var(--orange);font-weight:700;margin-bottom:6px;">&#x1F514; ALERTES DE PRIX <span style="font-size:7px;color:var(--text3);font-weight:400;text-transform:none;margin-left:4px;">(Futures COMEX via Yahoo)</span></div>
           <div style="display:flex;gap:4px;margin-bottom:6px;">
-            <input type="number" id="alertPriceInput" placeholder="Ex: 5200" step="0.01" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text1);font-family:'JetBrains Mono',monospace;font-size:10px;padding:5px 8px;border-radius:5px;outline:none;">
-            <button onclick="addPriceAlert()" style="background:var(--gold);color:var(--bg0);border:none;border-radius:5px;font-size:10px;font-weight:700;padding:5px 10px;cursor:pointer;">+ Alerte</button>
+            <select id="alertPairSelect" style="background:var(--bg3);border:1px solid var(--border);color:var(--text1);font-size:9px;padding:5px 4px;border-radius:5px;outline:none;min-width:75px;">
+              <option value="XAUUSD" style="color:#f0b429;">XAU/USD</option>
+              <option value="XAGUSD" style="color:#c0c0c0;">XAG/USD</option>
+              <option value="DXY" style="color:#3b9eff;">DXY</option>
+              <option value="SPX500" style="color:#34d399;">SPX500</option>
+            </select>
+            <input type="number" id="alertPriceInput" placeholder="Prix" step="0.01" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text1);font-family:'JetBrains Mono',monospace;font-size:10px;padding:5px 8px;border-radius:5px;outline:none;">
+            <button onclick="addPriceAlert()" style="background:var(--gold);color:var(--bg0);border:none;border-radius:5px;font-size:10px;font-weight:700;padding:5px 10px;cursor:pointer;">+</button>
           </div>
           <div id="alertsList"></div>
+          <div style="font-size:7px;color:var(--text3);margin-top:4px;text-align:center;">Prix: Futures COMEX (GC=F, SI=F) via Yahoo Finance &bull; V&eacute;rifi&eacute; toutes les 15s</div>
         </div>
       </div>
 
@@ -2498,17 +2505,31 @@ function calcFibonacci(highs, lows, closes) {
   levels.forEach((lvl, idx) => {
     let price;
     if(uptrend) {
-      price = swingHigh - (range * lvl); // retrace from high
+      price = swingHigh - (range * lvl);
     } else {
-      price = swingLow + (range * lvl); // retrace from low
+      price = swingLow + (range * lvl);
     }
     const el = document.getElementById(ids[idx]);
-    if(el) el.textContent = price.toFixed(2);
+    if(el) {
+      el.textContent = price.toFixed(2);
+      // Highlight if current price is within 1% of this level
+      const cp = pairPrices['XAUUSD']?.price;
+      if(cp && Math.abs(cp - price) / cp < 0.01) {
+        el.style.color = 'var(--gold)';
+        el.style.fontWeight = '900';
+        el.parentElement.style.background = 'rgba(240,180,41,0.08)';
+        el.parentElement.style.borderLeftColor = 'var(--gold)';
+      } else {
+        el.style.fontWeight = '';
+        el.parentElement.style.background = '';
+      }
+    }
   });
   
   const ctx = document.getElementById('fibContext');
   if(ctx) {
-    ctx.textContent = (uptrend ? '\u2191 Swing H: ' : '\u2193 Swing H: ') + swingHigh.toFixed(0) + ' / L: ' + swingLow.toFixed(0) + ' (' + len + 'j)';
+    ctx.innerHTML = (uptrend ? '&#x2191;' : '&#x2193;') + ' Swing H: ' + swingHigh.toFixed(0) + ' / L: ' + swingLow.toFixed(0) + ' (' + len + 'j Daily)' +
+      '<br><span style="color:var(--purple,#a78bfa);">' + (uptrend ? 'Retracement baissier depuis le sommet' : 'Retracement haussier depuis le creux') + '</span>';
   }
   window._fibData = { swingHigh, swingLow, uptrend };
 }
@@ -2587,36 +2608,58 @@ async function loadTIPS() {
   } catch(e) { console.log('TIPS err:', e); }
 }
 let priceAlerts = JSON.parse(localStorage.getItem('xaumitri49_alerts') || '[]');
+// Migrate old alerts without pair field
+priceAlerts = priceAlerts.map(a => { if(!a.pair) a.pair = 'XAUUSD'; return a; });
+localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
+const PAIR_LABELS = { XAUUSD:'XAU/USD', XAGUSD:'XAG/USD', DXY:'DXY', SPX500:'SPX500' };
+const PAIR_COLORS = { XAUUSD:'var(--gold)', XAGUSD:'var(--silver)', DXY:'var(--blue)', SPX500:'#34d399' };
+
 function renderAlerts() {
   const l = document.getElementById('alertsList');
   if(!l) return;
   if(!priceAlerts.length) { l.innerHTML = '<div style="font-size:9px;color:var(--text3);text-align:center;padding:4px;">Aucune alerte</div>'; return; }
   l.innerHTML = priceAlerts.map(function(a, i) {
     const trig = a.triggered;
-    const dirCls = a.dir === 'above' ? 'above' : 'below';
-    const dirTxt = a.dir === 'above' ? '&ge;' : '&le;';
-    const bg = trig ? 'rgba(16,217,106,0.1);border:1px solid rgba(16,217,106,0.3)' : 'var(--bg3)';
-    const statusTxt = trig ? '<span style="font-size:8px;color:var(--green);font-weight:700;margin-left:4px;">TOUCHE</span>' : '';
-    return '<div class="alert-item" id="alert-'+i+'" style="background:'+bg+';"><span class="al-price"'+(trig?' style="text-decoration:line-through;opacity:0.6;"':'')+'>'+a.price.toFixed(2)+'</span><span class="al-dir '+dirCls+'">'+dirTxt+'</span>'+statusTxt+'<span class="al-del" onclick="removePriceAlert('+i+')">&times;</span></div>';
+    const pair = a.pair || 'XAUUSD';
+    const dirTxt = a.dir === 'above' ? '&#8805;' : '&#8804;';
+    const pairLabel = PAIR_LABELS[pair] || pair;
+    const pairColor = PAIR_COLORS[pair] || 'var(--text1)';
+    const bg = trig ? 'rgba(16,217,106,0.1);border:1px solid rgba(16,217,106,0.3)' : 'var(--bg3);border:1px solid var(--border)';
+    const statusTxt = trig ? ' <span style="font-size:7px;color:var(--green);font-weight:700;">TOUCHE</span>' : '';
+    const cp = pairPrices[pair]?.price;
+    const dec = pair === 'XAGUSD' ? 3 : pair === 'DXY' ? 3 : 2;
+    const dist = cp ? Math.abs(cp - a.price).toFixed(dec) : '?';
+    const distTxt = trig ? '' : ' <span style="font-size:7px;color:var(--text3);">(' + dist + ' pts)</span>';
+    return '<div style="display:flex;align-items:center;gap:5px;padding:4px 6px;border-radius:4px;margin-bottom:3px;' + bg + ';" id="alert-' + i + '">' +
+      '<span style="font-size:8px;font-weight:700;color:' + pairColor + ';min-width:48px;">' + pairLabel + '</span>' +
+      '<span style="font-size:10px;font-weight:700;font-family:JetBrains Mono,monospace;color:var(--text1);' + (trig ? 'text-decoration:line-through;opacity:0.5;' : '') + '">' + a.price.toFixed(dec) + '</span>' +
+      '<span style="font-size:9px;color:' + (a.dir === 'above' ? 'var(--green)' : 'var(--red)') + ';">' + dirTxt + '</span>' +
+      statusTxt + distTxt +
+      '<span style="margin-left:auto;cursor:pointer;color:var(--text3);font-size:12px;" onclick="removePriceAlert(' + i + ')">&times;</span>' +
+    '</div>';
   }).join('');
 }
+
 function addPriceAlert() {
   const inp = document.getElementById('alertPriceInput');
+  const pairSel = document.getElementById('alertPairSelect');
   const p = parseFloat(inp.value);
   if(!p || p <= 0) return;
-  const cp = pairPrices['XAUUSD']?.price || 0;
-  priceAlerts.push({ price: p, dir: p > cp ? 'above' : 'below', triggered: false });
+  const pair = pairSel ? pairSel.value : 'XAUUSD';
+  const cp = pairPrices[pair]?.price || 0;
+  priceAlerts.push({ pair: pair, price: p, dir: p > cp ? 'above' : 'below', triggered: false });
   localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
   inp.value = '';
   renderAlerts();
-if('Notification' in window && Notification.permission === 'default') { Notification.requestPermission(); }
   if('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
 }
+
 function removePriceAlert(i) {
   priceAlerts.splice(i, 1);
   localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
   renderAlerts();
 }
+
 function playAlertSound() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -2624,23 +2667,27 @@ function playAlertSound() {
       const o = ctx.createOscillator(); const g = ctx.createGain();
       o.connect(g); g.connect(ctx.destination);
       o.frequency.value = freq; o.type = 'sine';
-      g.gain.setValueAtTime(0.4, ctx.currentTime + start);
+      g.gain.setValueAtTime(0.5, ctx.currentTime + start);
       g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + start + dur);
       o.start(ctx.currentTime + start); o.stop(ctx.currentTime + start + dur);
     }
     beep(880, 0, 0.3); beep(1100, 0.35, 0.3); beep(880, 0.7, 0.3); beep(1100, 1.05, 0.4);
   } catch(e) {}
 }
+
 function checkPriceAlerts() {
-  const cp = pairPrices['XAUUSD']?.price;
-  if(!cp) return;
   let anyTriggered = false;
-  priceAlerts.forEach(function(a, i) {
+  let triggeredNames = [];
+  priceAlerts.forEach(function(a) {
     if(a.triggered) return;
+    const pair = a.pair || 'XAUUSD';
+    const cp = pairPrices[pair]?.price;
+    if(!cp) return;
     const hit = (a.dir === 'above' && cp >= a.price) || (a.dir === 'below' && cp <= a.price);
     if(hit) {
       a.triggered = true;
       anyTriggered = true;
+      triggeredNames.push((PAIR_LABELS[pair] || pair) + ' @ ' + a.price.toFixed(2));
     }
   });
   if(anyTriggered) {
@@ -2648,11 +2695,8 @@ function checkPriceAlerts() {
     renderAlerts();
     playAlertSound();
     if('Notification' in window && Notification.permission === 'granted') {
-      new Notification('XauMitri49 Alerte Prix', { body: 'XAU/USD: ' + cp.toFixed(2) + ' - Une alerte a ete declenchee!', tag: 'xaumitri49-alert' });
+      new Notification('XauMitri49 Alerte', { body: triggeredNames.join(', '), tag: 'xaumitri49-' + Date.now() });
     }
-    // Visual flash on the whole niveaux section
-    const nc = document.querySelector('.col-right .card:last-child');
-    if(nc) { nc.style.boxShadow = '0 0 20px rgba(240,180,41,0.4)'; setTimeout(function(){nc.style.boxShadow='';}, 3000); }
   }
 }
 
