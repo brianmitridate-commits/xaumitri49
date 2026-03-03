@@ -1125,7 +1125,6 @@ function updateClock() {
   document.getElementById('clock').textContent = utc + ' UTC';
   updateSessions(now);
   updateKillzones(now);
-  updateNewsCountdown();
 }
 setInterval(updateClock, 1000);
 
@@ -1503,7 +1502,6 @@ async function computeBias() {
     }
 
     renderBiasCards(results);
-    computeRiskSentiment();
   } catch(e) {
     document.getElementById('confluenceBar').textContent = '⚠️ Erreur calcul biais';
   }
@@ -1945,8 +1943,7 @@ function fmtVol(v){if(v>=1e9)return(v/1e9).toFixed(1)+'B';if(v>=1e6)return(v/1e6
 // OVERRIDES
 const _ocba = changeBiasAsset;
 changeBiasAsset = async function(id) { await _ocba(id); await computeBiasProV2(); };
-const _ocrs = computeRiskSentiment;
-computeRiskSentiment = function() { const ba = document.getElementById('biasAssetSelect')?.value || 'XAUUSD'; computeRiskForPair(ba); };
+
 
 // BRIEFING OVERRIDE
 const _ogb = generateBriefing;
