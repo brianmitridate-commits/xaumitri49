@@ -1511,10 +1511,6 @@ async function loadPrices() {
         if(tc.length >= 2) window._tipsData = { price: tc[tc.length-1], chg: ((tc[tc.length-1]-tc[tc.length-2])/tc[tc.length-2]*100) };
       }
     } catch(e) {}
-    // Fibonacci auto
-    calcFibonacci(highs, lows, closes);
-    // ATR calculation
-    updateATR(highs, lows, closes, document.getElementById('biasAssetSelect')?.value || 'XAUUSD');
     computeBias();
     setTimeout(computeBiasProV2, 2000);
     updateATR(gd, 2);
