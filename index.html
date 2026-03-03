@@ -593,6 +593,28 @@ body::before{
 /* RISK PAIR */
 .risk-pair-label{font-size:9px;text-align:center;padding:3px 8px;border-radius:10px;background:var(--bg3);color:var(--text2);margin-bottom:6px;font-weight:600;letter-spacing:0.05em;}
 
+
+/* MOBILE IMPROVEMENTS */
+@media (max-width:640px) {
+  .price-bar{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;gap:6px;padding:6px 8px;}
+  .price-bar::-webkit-scrollbar{display:none;}
+  .price-pill{font-size:9px;padding:5px 8px;min-width:auto;flex-shrink:0;}
+  .ratio-pill,.tips-pill{font-size:8px;padding:3px 8px;flex-shrink:0;}
+  .card{margin-bottom:0;}
+  .card-bd{padding:8px;}
+  .sent-pair-block{padding:8px;}
+  .bias-hero{gap:4px;}
+  .bias-tf-card{padding:6px 4px;}
+  .atr-box{flex-direction:column;gap:4px;padding:6px;}
+  .topbar{padding:8px 10px;}
+  .logo-text{font-size:16px;}
+  .briefing-text-content{font-size:11px;line-height:1.5;}
+  .sessions-timeline{display:none;}
+}
+@media (max-width:400px) {
+  .price-pill{font-size:8px;padding:4px 6px;}
+  .price-pill .pp-chg{display:none;}
+}
 </style>
 </head>
 <body>
@@ -1509,7 +1531,14 @@ async function loadPrices() {
       document.getElementById('lvlWL').textContent = fmt(wl[wl.length-1]);
     }
     updateATR(gd, 2);
-    calcFibonacci(highs, lows, closes);
+    // Fibonacci needs more data - fetch longer period
+    try {
+      const fibData = await fetchYahooCached('GC=F', '60d', '1d');
+      if(fibData) {
+        const fq = fibData.indicators.quote[0];
+        calcFibonacci(fq.high.filter(x=>x), fq.low.filter(x=>x), fq.close.filter(x=>x));
+      }
+    } catch(e) { calcFibonacci(highs, lows, closes); }
     checkPriceAlerts();
   }
   document.getElementById('biasTime').textContent = new Date().toLocaleTimeString('fr-FR',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC';
@@ -2444,7 +2473,7 @@ function getAISentimentAnalysis() {
 // FIBONACCI AUTO RETRACEMENTS
 // ==========================================
 function calcFibonacci(highs, lows, closes) {
-  if(highs.length < 20) return;
+  if(highs.length < 3) return;
   // Find swing high and swing low in last 30 days
   const len = Math.min(30, highs.length);
   const recentHighs = highs.slice(-len);
@@ -2562,7 +2591,14 @@ function renderAlerts() {
   const l = document.getElementById('alertsList');
   if(!l) return;
   if(!priceAlerts.length) { l.innerHTML = '<div style="font-size:9px;color:var(--text3);text-align:center;padding:4px;">Aucune alerte</div>'; return; }
-  l.innerHTML = priceAlerts.map(function(a, i) { return '<div class="alert-item" id="alert-'+i+'"><span class="al-price">'+a.price.toFixed(2)+'</span><span class="al-dir '+(a.dir==='above'?'above':'below')+'">'+(a.dir==='above'?'&ge;':'&le;')+'</span><span class="al-del" onclick="removePriceAlert('+i+')">&times;</span></div>'; }).join('');
+  l.innerHTML = priceAlerts.map(function(a, i) {
+    const trig = a.triggered;
+    const dirCls = a.dir === 'above' ? 'above' : 'below';
+    const dirTxt = a.dir === 'above' ? '&ge;' : '&le;';
+    const bg = trig ? 'rgba(16,217,106,0.1);border:1px solid rgba(16,217,106,0.3)' : 'var(--bg3)';
+    const statusTxt = trig ? '<span style="font-size:8px;color:var(--green);font-weight:700;margin-left:4px;">TOUCHE</span>' : '';
+    return '<div class="alert-item" id="alert-'+i+'" style="background:'+bg+';"><span class="al-price"'+(trig?' style="text-decoration:line-through;opacity:0.6;"':'')+'>'+a.price.toFixed(2)+'</span><span class="al-dir '+dirCls+'">'+dirTxt+'</span>'+statusTxt+'<span class="al-del" onclick="removePriceAlert('+i+')">&times;</span></div>';
+  }).join('');
 }
 function addPriceAlert() {
   const inp = document.getElementById('alertPriceInput');
@@ -2573,6 +2609,7 @@ function addPriceAlert() {
   localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
   inp.value = '';
   renderAlerts();
+if('Notification' in window && Notification.permission === 'default') { Notification.requestPermission(); }
   if('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
 }
 function removePriceAlert(i) {
@@ -2580,29 +2617,43 @@ function removePriceAlert(i) {
   localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
   renderAlerts();
 }
+function playAlertSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    function beep(freq, start, dur) {
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = freq; o.type = 'sine';
+      g.gain.setValueAtTime(0.4, ctx.currentTime + start);
+      g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + start + dur);
+      o.start(ctx.currentTime + start); o.stop(ctx.currentTime + start + dur);
+    }
+    beep(880, 0, 0.3); beep(1100, 0.35, 0.3); beep(880, 0.7, 0.3); beep(1100, 1.05, 0.4);
+  } catch(e) {}
+}
 function checkPriceAlerts() {
   const cp = pairPrices['XAUUSD']?.price;
   if(!cp) return;
+  let anyTriggered = false;
   priceAlerts.forEach(function(a, i) {
     if(a.triggered) return;
     const hit = (a.dir === 'above' && cp >= a.price) || (a.dir === 'below' && cp <= a.price);
     if(hit) {
       a.triggered = true;
-      const el = document.getElementById('alert-' + i);
-      if(el) { el.classList.add('alert-triggered'); el.style.background = 'rgba(240,180,41,0.15)'; }
-      if('Notification' in window && Notification.permission === 'granted') {
-        new Notification('XauMitri49 Alerte', { body: 'XAU/USD: ' + a.price.toFixed(2) + ' (actuel: ' + cp.toFixed(2) + ')' });
-      }
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator(); const g = ctx.createGain();
-        osc.connect(g); g.connect(ctx.destination);
-        osc.frequency.value = 880; osc.type = 'sine'; g.gain.value = 0.3;
-        osc.start(); osc.stop(ctx.currentTime + 0.15);
-      } catch(e) {}
-      localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
+      anyTriggered = true;
     }
   });
+  if(anyTriggered) {
+    localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
+    renderAlerts();
+    playAlertSound();
+    if('Notification' in window && Notification.permission === 'granted') {
+      new Notification('XauMitri49 Alerte Prix', { body: 'XAU/USD: ' + cp.toFixed(2) + ' - Une alerte a ete declenchee!', tag: 'xaumitri49-alert' });
+    }
+    // Visual flash on the whole niveaux section
+    const nc = document.querySelector('.col-right .card:last-child');
+    if(nc) { nc.style.boxShadow = '0 0 20px rgba(240,180,41,0.4)'; setTimeout(function(){nc.style.boxShadow='';}, 3000); }
+  }
 }
 
 
