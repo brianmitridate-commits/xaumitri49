@@ -638,6 +638,30 @@ body::before{
 
 /* ═══ API KEY STATUS INDICATOR ═══ */
 .api-key-btn.has-key{background:rgba(16,217,106,0.12);color:var(--green);border-color:rgba(16,217,106,0.25);}
+
+/* ═══ MOBILE DEBUG TOAST ═══ */
+#debugToast{
+  display:none;position:fixed;bottom:70px;left:8px;right:8px;z-index:9999;
+  max-height:40vh;overflow-y:auto;
+  background:rgba(5,7,9,0.97);border:1px solid var(--border);
+  border-radius:8px;padding:10px;font-family:'JetBrains Mono',monospace;
+  font-size:9px;line-height:1.5;color:var(--text2);
+  box-shadow:0 -4px 20px rgba(0,0,0,0.5);
+  backdrop-filter:blur(10px);
+}
+#debugToast.show{display:block;}
+#debugToast .dbg-err{color:var(--red);}
+#debugToast .dbg-ok{color:var(--green);}
+#debugToast .dbg-warn{color:var(--orange);}
+#debugToast .dbg-close{position:absolute;top:4px;right:8px;cursor:pointer;color:var(--text3);font-size:14px;background:none;border:none;}
+.debug-toggle-btn{
+  position:fixed;bottom:70px;right:8px;z-index:9998;
+  width:28px;height:28px;border-radius:50%;
+  background:var(--bg3);border:1px solid var(--border);
+  color:var(--text3);font-size:12px;cursor:pointer;
+  display:none;align-items:center;justify-content:center;
+}
+@media(max-width:640px){.debug-toggle-btn{display:flex;}}
 </style>
 </head>
 <body>
@@ -1013,6 +1037,10 @@ body::before{
 </div><!-- /layout -->
 </div><!-- /wrap -->
 
+<!-- DEBUG TOAST (visible errors on mobile) -->
+<div id="debugToast"><button class="dbg-close" onclick="document.getElementById('debugToast').classList.remove('show')">✕</button><div id="debugLog"></div></div>
+<button class="debug-toggle-btn" onclick="toggleDebug()" title="Debug">🐛</button>
+
 <!-- MOBILE BOTTOM NAV -->
 <nav class="mobile-nav">
   <div class="mobile-nav-tabs">
@@ -1308,34 +1336,48 @@ async function callClaude(prompt, outputId, btnId, btnLabel) {
 }
 
 async function claudeAPI(prompt, maxTokens=400) {
+  dbg('📡 API call... clé: ' + API_KEY.slice(0,15) + '...', 'ok');
   console.log('[XauMitri49] API call avec clé:', API_KEY.slice(0,12) + '...');
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }]
-    })
-  });
-  if(!r.ok) {
-    let errMsg = 'HTTP ' + r.status;
-    try { const d = await r.json(); errMsg = d.error?.message || errMsg; } catch(e) {}
-    console.error('[XauMitri49] API erreur:', r.status, errMsg);
-    if(r.status === 401) throw new Error('401 — ' + errMsg);
-    if(r.status === 429) throw new Error('429 — Trop de requêtes, attends 1 min');
-    if(r.status === 400) throw new Error('400 — ' + errMsg);
-    throw new Error(r.status + ' — ' + errMsg);
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    dbg('📨 Réponse HTTP: ' + r.status + ' ' + r.statusText, r.ok ? 'ok' : 'err');
+    if(!r.ok) {
+      let errMsg = 'HTTP ' + r.status;
+      try { const d = await r.json(); errMsg = d.error?.message || errMsg; } catch(e) {}
+      dbg('❌ API erreur: ' + r.status + ' — ' + errMsg, 'err');
+      console.error('[XauMitri49] API erreur:', r.status, errMsg);
+      if(r.status === 401) throw new Error('401 — ' + errMsg);
+      if(r.status === 429) throw new Error('429 — Trop de requêtes, attends 1 min');
+      if(r.status === 400) throw new Error('400 — ' + errMsg);
+      throw new Error(r.status + ' — ' + errMsg);
+    }
+    const d = await r.json();
+    if(d.error) { dbg('❌ API error in body: ' + d.error.message, 'err'); throw new Error(d.error.message); }
+    if(d.content && d.content[0] && d.content[0].text) {
+      dbg('✅ API OK — ' + d.content[0].text.length + ' chars', 'ok');
+      return d.content[0].text;
+    }
+    dbg('❌ Réponse vide', 'err');
+    throw new Error('Réponse vide');
+  } catch(e) {
+    if(e.message && !e.message.includes('HTTP')) {
+      dbg('❌ FETCH FAIL: ' + e.message + ' (type: ' + e.name + ')', 'err');
+    }
+    throw e;
   }
-  const d = await r.json();
-  if(d.error) throw new Error(d.error.message);
-  if(d.content && d.content[0] && d.content[0].text) return d.content[0].text;
-  throw new Error('Réponse vide');
 }
 
 let goldData = null, silverData = null, dxyData = null;
@@ -1359,6 +1401,55 @@ function updateApiKeyUI() {
   }
 }
 
+// ═══════════════════════════════════════════════════════
+// 🐛 DEBUG VISIBLE SUR MOBILE (pas de console sur tel)
+// ═══════════════════════════════════════════════════════
+let _debugVisible = false;
+function toggleDebug() {
+  const t = document.getElementById('debugToast');
+  _debugVisible = !_debugVisible;
+  t.classList.toggle('show', _debugVisible);
+}
+function dbg(msg, type) {
+  const log = document.getElementById('debugLog');
+  if(!log) return;
+  const ts = new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const cls = type === 'err' ? 'dbg-err' : type === 'ok' ? 'dbg-ok' : type === 'warn' ? 'dbg-warn' : '';
+  log.innerHTML = '<div class="' + cls + '">[' + ts + '] ' + msg + '</div>' + log.innerHTML;
+  // Auto-show on errors
+  if(type === 'err' && !_debugVisible) {
+    document.getElementById('debugToast').classList.add('show');
+    _debugVisible = true;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// 🔧 FIX PWA: Nettoyer le service worker qui bloque les API calls
+// ═══════════════════════════════════════════════════════
+if('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(function(registrations) {
+    if(registrations.length > 0) {
+      dbg('⚠️ Service Worker(s) détecté(s): ' + registrations.length + ' — nettoyage...', 'warn');
+      registrations.forEach(function(reg) {
+        reg.unregister().then(function(ok) {
+          dbg(ok ? '✅ Service Worker supprimé' : '❌ Échec suppression SW', ok ? 'ok' : 'err');
+        });
+      });
+      // Vider les caches du SW
+      if('caches' in window) {
+        caches.keys().then(function(names) {
+          names.forEach(function(name) {
+            caches.delete(name);
+            dbg('🗑️ Cache supprimé: ' + name, 'ok');
+          });
+        });
+      }
+    } else {
+      dbg('✅ Pas de Service Worker', 'ok');
+    }
+  }).catch(function(e) { dbg('SW check error: ' + e.message, 'err'); });
+}
+
 function openModal() {
   diagStorage(); // Diagnostic au moment de l'ouverture
   document.getElementById('apiModal').classList.add('show');
@@ -1375,6 +1466,7 @@ function saveApiKey() {
   }
   const testBtn = document.querySelector('.modal-btn.confirm');
   if(testBtn) testBtn.textContent = '⏳ Test en cours...';
+  dbg('🔑 Test clé API...', 'warn');
   fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -1389,6 +1481,7 @@ function saveApiKey() {
       messages: [{ role: 'user', content: 'Dis OK' }]
     })
   }).then(r => {
+    dbg('🔑 Test réponse: HTTP ' + r.status, r.ok ? 'ok' : 'err');
     if(r.ok) {
       API_KEY = key;
       // 🔧 FIX: Sauvegarde dans TOUS les stockages (localStorage + cookie + sessionStorage)
@@ -1412,6 +1505,7 @@ function saveApiKey() {
     }
     if(testBtn) testBtn.textContent = '✓ Activer l\'IA';
   }).catch(e => {
+    dbg('❌ RÉSEAU: ' + e.message + ' (type: ' + e.name + ')', 'err');
     alert('❌ Erreur réseau: ' + e.message);
     if(testBtn) testBtn.textContent = '✓ Activer l\'IA';
   });
@@ -2339,10 +2433,12 @@ updateApiKeyUI(); // Met à jour le bouton API dans la topbar
 
 if(API_KEY) {
   console.log('[XauMitri49] ✅ Clé API trouvée au démarrage:', API_KEY.slice(0,15) + '...');
+  dbg('✅ Clé API trouvée: ' + API_KEY.slice(0,15) + '...', 'ok');
   const t1 = document.getElementById('aiAnalysisText'); if(t1 && t1.textContent.includes('Active ta')) t1.textContent = '🔑 Clé API active. Clique pour analyser.';
   const t2 = document.getElementById('aiSentimentText'); if(t2 && t2.textContent.includes('Active ta')) t2.textContent = '🔑 Clé API active. Clique pour analyser.';
 } else {
   console.log('[XauMitri49] ⚠️ Pas de clé API trouvée au démarrage');
+  dbg('⚠️ Pas de clé API au démarrage', 'warn');
 }
 
 renderPriceBar();
