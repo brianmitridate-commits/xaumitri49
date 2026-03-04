@@ -1020,11 +1020,12 @@ body::before{
         <span>📍 Niveaux Clés</span>
         <div style="display:flex;align-items:center;gap:8px;">
           <select id="levelsAsset" onchange="updateLevels()" onclick="event.stopPropagation()" style="background:transparent;border:none;color:var(--gold);font-size:9px;cursor:pointer;">
-            <option value="gold">GC</option>
-            <option value="silver">SI</option>
-            <option value="es">ES</option>
-            <option value="nq">NQ</option>
-            <option value="ym">YM</option>
+            <option value="GC">GC</option>
+            <option value="SI">SI</option>
+            <option value="DXY">DXY</option>
+            <option value="ES">ES</option>
+            <option value="NQ">NQ</option>
+            <option value="YM">YM</option>
           </select>
           <span class="hd-toggle">▾</span>
         </div>
@@ -1803,27 +1804,39 @@ async function changeBiasAsset(id) {
   if(cb) cb.textContent = '⏳ Calcul biais ' + id + '...';
   
   try {
-    const [d300, h1d] = await Promise.all([fetchYahoo(yahoo,'300d','1d'), fetchYahoo(yahoo,'60d','1h')]);
+    // Fetch in parallel with fallback
+    let [d300, h1d] = await Promise.all([
+      fetchYahoo(yahoo,'300d','1d').catch(() => null),
+      fetchYahoo(yahoo,'60d','1h').catch(() => null)
+    ]);
+    // Fallback: shorter range if 300d failed
+    if(!d300) d300 = await fetchYahoo(yahoo,'100d','1d').catch(() => null);
+    
     const results = {};
     
     if(d300) {
       const c=d300.indicators.quote[0].close.filter(x=>x), h=d300.indicators.quote[0].high.filter(x=>x), l=d300.indicators.quote[0].low.filter(x=>x);
-      const ema=calcEMA(c,200), n=c.length;
-      const above=c[n-1]>ema, hh=h[n-1]>h[n-2], hl=l[n-1]>l[n-2];
-      const bull=above&&hh&&hl, bear=!above&&!hh&&!hl;
-      results.d = bull?'HAUSSIER':bear?'BAISSIER':above?'LÉGÈREMENT HAUSSIER':'LÉGÈREMENT BAISSIER';
-      
-      const e50=calcEMA(c,50), wA=c[n-1]>e50;
-      const wH=Math.max(...h.slice(-5)), wpH=Math.max(...h.slice(-10,-5));
-      const wL=Math.min(...l.slice(-5)), wpL=Math.min(...l.slice(-10,-5));
-      const whh=wH>wpH, whl=wL>wpL;
-      results.w = (wA&&whh&&whl)?'HAUSSIER':(!wA&&!whh&&!whl)?'BAISSIER':wA?'LÉGÈREMENT HAUSSIER':'LÉGÈREMENT BAISSIER';
+      if(c.length >= 10) {
+        const emaLen = Math.min(200, Math.max(20, Math.floor(c.length * 0.6)));
+        const ema=calcEMA(c,emaLen), n=c.length;
+        const above=c[n-1]>ema, hh=h[n-1]>h[n-2], hl=l[n-1]>l[n-2];
+        const bull=above&&hh&&hl, bear=!above&&!hh&&!hl;
+        results.d = bull?'HAUSSIER':bear?'BAISSIER':above?'LÉGÈREMENT HAUSSIER':'LÉGÈREMENT BAISSIER';
+        
+        const e50Len = Math.min(50, Math.floor(c.length * 0.3));
+        const e50=calcEMA(c,e50Len), wA=c[n-1]>e50;
+        const wH=Math.max(...h.slice(-5)), wpH=Math.max(...h.slice(-10,-5));
+        const wL=Math.min(...l.slice(-5)), wpL=Math.min(...l.slice(-10,-5));
+        const whh=wH>wpH, whl=wL>wpL;
+        results.w = (wA&&whh&&whl)?'HAUSSIER':(!wA&&!whh&&!whl)?'BAISSIER':wA?'LÉGÈREMENT HAUSSIER':'LÉGÈREMENT BAISSIER';
+      }
     }
     
     if(h1d) {
       const c=h1d.indicators.quote[0].close.filter(x=>x), h=h1d.indicators.quote[0].high.filter(x=>x), l=h1d.indicators.quote[0].low.filter(x=>x);
-      if(c.length >= 50) {
-        const ema=calcEMA(c,Math.min(200,c.length)), n=c.length;
+      if(c.length >= 20) {
+        const emaLen = Math.min(200, Math.max(20, Math.floor(c.length * 0.4)));
+        const ema=calcEMA(c,emaLen), n=c.length;
         const above=c[n-1]>ema, hh=h[n-1]>h[n-2], hl=l[n-1]>l[n-2];
         const bull=above&&hh&&hl, bear=!above&&!hh&&!hl;
         results.h1 = bull?'HAUSSIER':bear?'BAISSIER':above?'LÉGÈREMENT HAUSSIER':'LÉGÈREMENT BAISSIER';
@@ -1915,42 +1928,30 @@ async function loadPrices() {
   renderPriceBar();
   dbg('💰 Prix chargés en ' + (Date.now()-startT) + 'ms', 'ok');
 
-  const gd = pairDataMap['GC'];
-  if(gd) {
-    goldData = gd;
-    const q = gd.indicators.quote[0];
-    const highs = q.high.filter(x=>x);
-    const lows = q.low.filter(x=>x);
-    const opens = q.open.filter(x=>x);
-    const closes = q.close.filter(x=>x);
-    document.getElementById('lvlHod').textContent = fmt(highs[highs.length-1]);
-    document.getElementById('lvlLod').textContent = fmt(lows[lows.length-1]);
-    document.getElementById('lvlOpen').textContent = fmt(opens[opens.length-1]);
-    document.getElementById('lvlPDH').textContent = fmt(highs[highs.length-2]);
-    document.getElementById('lvlPDL').textContent = fmt(lows[lows.length-2]);
-    if(gw) {
-      const wh = gw.indicators.quote[0].high.filter(x=>x);
-      const wl = gw.indicators.quote[0].low.filter(x=>x);
-      document.getElementById('lvlWH').textContent = fmt(wh[wh.length-1]);
-      document.getElementById('lvlWL').textContent = fmt(wl[wl.length-1]);
-    }
-    updateATR(gd, 2);
-    checkPriceAlerts();
-  }
+  // Store pairDataMap globally for updateLevels
+  window._pairDataMap = pairDataMap;
+  window._weeklyData = gw;
+  
+  // Update levels for currently selected pair
+  await updateLevels();
+  
+  checkPriceAlerts();
   document.getElementById('biasTime').textContent = new Date().toLocaleTimeString('fr-FR',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC';
   
   // PHASE 2: Calculs lourds DIFFÉRÉS (ne bloque pas l'affichage)
   // Mobile: délai plus long pour laisser l'UI respirer
   const phase2Delay = window.innerWidth <= 640 ? 500 : 100;
   setTimeout(() => {
-    if(gd) {
-      fetchYahooCached('GC=F', '60d', '1d').then(fibData => {
-        if(fibData) {
-          const fq = fibData.indicators.quote[0];
-          calcFibonacci(fq.high.filter(x=>x), fq.low.filter(x=>x), fq.close.filter(x=>x));
-        }
-      }).catch(() => {});
-    }
+    // Fibonacci for selected levels pair
+    const lvlPair = document.getElementById('levelsAsset')?.value || 'GC';
+    const lvlYahoo = BIAS_YAHOO[lvlPair] || 'GC=F';
+    const lvlDec = ALL_PAIRS.find(p=>p.id===lvlPair)?.decimals || 2;
+    fetchYahooCached(lvlYahoo, '60d', '1d').then(fibData => {
+      if(fibData) {
+        const fq = fibData.indicators.quote[0];
+        calcFibonacci(fq.high.filter(x=>x), fq.low.filter(x=>x), fq.close.filter(x=>x), lvlDec);
+      }
+    }).catch(() => {});
     Promise.all([
       computeBias(),
       computeBiasProV2(),
@@ -1996,35 +1997,45 @@ function calcEMA(data,p) {
 
 async function computeBias() {
   try {
-    const [d300,h1d] = await Promise.all([
-      fetchYahooCached('GC=F','300d','1d'),
-      fetchYahooCached('GC=F','60d','1h'),
+    const biasAsset = document.getElementById('biasAssetSelect')?.value || 'GC';
+    const yahoo = BIAS_YAHOO[biasAsset] || 'GC=F';
+    let [d300,h1d] = await Promise.all([
+      fetchYahooCached(yahoo,'300d','1d').catch(() => null),
+      fetchYahooCached(yahoo,'60d','1h').catch(() => null),
     ]);
+    // Fallback shorter range
+    if(!d300) d300 = await fetchYahooCached(yahoo,'100d','1d').catch(() => null);
+    
     const results = {};
     if(d300) {
       const c=d300.indicators.quote[0].close.filter(x=>x);
       const h=d300.indicators.quote[0].high.filter(x=>x);
       const l=d300.indicators.quote[0].low.filter(x=>x);
-      const ema=calcEMA(c,200); const n=c.length;
-      const above=c[n-1]>ema; const hh=h[n-1]>h[n-2]; const hl=l[n-1]>l[n-2];
-      const bull=above&&hh&&hl, bear=!above&&!hh&&!hl;
-      results.d = { bias: bull?'bull':bear?'bear':above?'sl-bull':'sl-bear', above, hh, hl, ema };
-      biasData.d = results.d;
-      const wClose=c[n-1];
-      const wHigh=Math.max(...h.slice(-5)), wPrevHigh=Math.max(...h.slice(-10,-5));
-      const wLow=Math.min(...l.slice(-5)), wPrevLow=Math.min(...l.slice(-10,-5));
-      const ema50w=calcEMA(c,50); const wAbove=wClose>ema50w;
-      const whh=wHigh>wPrevHigh, whl=wLow>wPrevLow;
-      const wbull=wAbove&&whh&&whl, wbear=!wAbove&&!whh&&!whl;
-      results.w = { bias: wbull?'bull':wbear?'bear':wAbove?'sl-bull':'sl-bear', above:wAbove, hh:whh, hl:whl };
-      biasData.w = results.w;
+      if(c.length >= 10) {
+        const emaLen = Math.min(200, Math.max(20, Math.floor(c.length * 0.6)));
+        const ema=calcEMA(c,emaLen); const n=c.length;
+        const above=c[n-1]>ema; const hh=h[n-1]>h[n-2]; const hl=l[n-1]>l[n-2];
+        const bull=above&&hh&&hl, bear=!above&&!hh&&!hl;
+        results.d = { bias: bull?'bull':bear?'bear':above?'sl-bull':'sl-bear', above, hh, hl, ema };
+        biasData.d = results.d;
+        const wClose=c[n-1];
+        const e50Len = Math.min(50, Math.floor(c.length * 0.3));
+        const wHigh=Math.max(...h.slice(-5)), wPrevHigh=Math.max(...h.slice(-10,-5));
+        const wLow=Math.min(...l.slice(-5)), wPrevLow=Math.min(...l.slice(-10,-5));
+        const ema50w=calcEMA(c,e50Len); const wAbove=wClose>ema50w;
+        const whh=wHigh>wPrevHigh, whl=wLow>wPrevLow;
+        const wbull=wAbove&&whh&&whl, wbear=!wAbove&&!whh&&!whl;
+        results.w = { bias: wbull?'bull':wbear?'bear':wAbove?'sl-bull':'sl-bear', above:wAbove, hh:whh, hl:whl };
+        biasData.w = results.w;
+      }
     }
     if(h1d) {
       const c=h1d.indicators.quote[0].close.filter(x=>x);
       const h=h1d.indicators.quote[0].high.filter(x=>x);
       const l=h1d.indicators.quote[0].low.filter(x=>x);
-      if(c.length>=50) {
-        const ema=calcEMA(c,Math.min(200,c.length)); const n=c.length;
+      if(c.length>=20) {
+        const emaLen = Math.min(200, Math.max(20, Math.floor(c.length * 0.4)));
+        const ema=calcEMA(c,emaLen); const n=c.length;
         const above=c[n-1]>ema; const hh=h[n-1]>h[n-2]; const hl=l[n-1]>l[n-2];
         const bull=above&&hh&&hl, bear=!above&&!hh&&!hl;
         results.h1 = { bias: bull?'bull':bear?'bear':above?'sl-bull':'sl-bear', above, hh, hl };
@@ -2205,7 +2216,7 @@ function analyzeStructure(closes, highs, lows, emaLen, pivotLen) {
   const h = highs.filter(x => x != null && !isNaN(x));
   const l = lows.filter(x => x != null && !isNaN(x));
   const n = Math.min(c.length, h.length, l.length);
-  if(n < 30) return null;
+  if(n < 15) return null;
   const ema = calcEMA(c, Math.min(emaLen, c.length));
   const price = c[c.length - 1];
   const pv = detectPivots(h.slice(-Math.min(n, 100)), l.slice(-Math.min(n, 100)), pivotLen);
@@ -2237,16 +2248,41 @@ async function computeBiasProV2() {
   if(!dashboard) return;
   dashboard.innerHTML = '<div style="font-size:10px;color:var(--text3);text-align:center;padding:6px;"><span class="spin">⟳</span> Analyse structure...</div>';
   try {
-    const [d300, h4d, h1d] = await Promise.all([fetchYahooCached(yahoo, '300d', '1d'),fetchYahooCached(yahoo, '60d', '1h'),fetchYahooCached(yahoo, '30d', '1h'),]);
-    const results = {};
-    const pivotLen = 5, emaLen = 200;
-    if(d300) { const q=d300.indicators.quote[0]; results.D = analyzeStructure(q.close, q.high, q.low, emaLen, pivotLen); }
-    if(h4d) {
-      const q=h4d.indicators.quote[0]; const c4=[],h4=[],l4=[];
-      for(let i=0;i<q.close.length;i+=4){const sl=q.close.slice(i,i+4).filter(x=>x);const sh=q.high.slice(i,i+4).filter(x=>x);const slo=q.low.slice(i,i+4).filter(x=>x);if(sl.length)c4.push(sl[sl.length-1]);if(sh.length)h4.push(Math.max(...sh));if(slo.length)l4.push(Math.min(...slo));}
-      results.H4 = analyzeStructure(c4, h4, l4, Math.min(emaLen,50), pivotLen);
+    // Fetch all data in parallel - use ranges adapted per asset
+    const [d300, h4d, h1d] = await Promise.all([
+      fetchYahooCached(yahoo, '300d', '1d').catch(() => null),
+      fetchYahooCached(yahoo, '60d', '1h').catch(() => null),
+      fetchYahooCached(yahoo, '30d', '1h').catch(() => null),
+    ]);
+    
+    // Fallback: if daily failed, try shorter range
+    let dailyData = d300;
+    if(!dailyData) {
+      dailyData = await fetchYahooCached(yahoo, '100d', '1d').catch(() => null);
     }
-    if(h1d) { const q=h1d.indicators.quote[0]; results.H1 = analyzeStructure(q.close, q.high, q.low, Math.min(emaLen,50), pivotLen); }
+    
+    const results = {};
+    const pivotLen = 5;
+    
+    if(dailyData) {
+      const q = dailyData.indicators.quote[0];
+      const closes = q.close.filter(x => x);
+      // Adaptive EMA: use 200 if enough data, otherwise use what we have
+      const emaLen = Math.min(200, Math.max(20, Math.floor(closes.length * 0.6)));
+      results.D = analyzeStructure(q.close, q.high, q.low, emaLen, pivotLen);
+    }
+    if(h4d) {
+      const q = h4d.indicators.quote[0]; const c4=[],h4=[],l4=[];
+      for(let i=0;i<q.close.length;i+=4){const sl=q.close.slice(i,i+4).filter(x=>x);const sh=q.high.slice(i,i+4).filter(x=>x);const slo=q.low.slice(i,i+4).filter(x=>x);if(sl.length)c4.push(sl[sl.length-1]);if(sh.length)h4.push(Math.max(...sh));if(slo.length)l4.push(Math.min(...slo));}
+      const emaLen4 = Math.min(50, Math.max(10, Math.floor(c4.length * 0.5)));
+      results.H4 = analyzeStructure(c4, h4, l4, emaLen4, pivotLen);
+    }
+    if(h1d) {
+      const q = h1d.indicators.quote[0];
+      const closes = q.close.filter(x => x);
+      const emaLen1 = Math.min(50, Math.max(10, Math.floor(closes.length * 0.4)));
+      results.H1 = analyzeStructure(q.close, q.high, q.low, emaLen1, pivotLen);
+    }
     const weights = { D: 3, H4: 2, H1: 1 }, totalWeight = 6;
     let rawScore = 0, dashHTML = '';
     ['D','H4','H1'].forEach(tf => {
@@ -2319,7 +2355,16 @@ async function loadVolumes() {
 function fmtVol(v){if(v>=1e9)return(v/1e9).toFixed(1)+'B';if(v>=1e6)return(v/1e6).toFixed(1)+'M';if(v>=1e3)return(v/1e3).toFixed(0)+'K';return v.toString();}
 
 const _ocba = changeBiasAsset;
-changeBiasAsset = async function(id) { await _ocba(id); await computeBiasProV2(); };
+changeBiasAsset = async function(id) {
+  await _ocba(id);
+  // Sync levels selector
+  const lvlSel = document.getElementById('levelsAsset');
+  if(lvlSel && [...lvlSel.options].some(o => o.value === id)) {
+    lvlSel.value = id;
+    await updateLevels();
+  }
+  await computeBiasProV2();
+};
 
 // BRIEFING OVERRIDE
 generateBriefing = async function(mode) {
@@ -2609,24 +2654,80 @@ function getAISentimentAnalysis() {
 }
 
 // ═══════════════════════════════════════════
+// NIVEAUX CLÉS DYNAMIQUES
+// ═══════════════════════════════════════════
+async function updateLevels() {
+  const pairId = document.getElementById('levelsAsset')?.value || 'GC';
+  const pair = ALL_PAIRS.find(p => p.id === pairId);
+  if(!pair) return;
+  const dec = pair.decimals || 2;
+  const fmtL = v => v ? parseFloat(v).toFixed(dec) : '—';
+  
+  try {
+    // Fetch daily data (5d for HOD/LOD/Open/PDH/PDL)
+    const daily = await fetchYahooCached(pair.yahoo, '5d', '1d');
+    if(daily) {
+      const q = daily.indicators.quote[0];
+      const highs = q.high.filter(x => x);
+      const lows = q.low.filter(x => x);
+      const opens = q.open.filter(x => x);
+      const closes = q.close.filter(x => x);
+      
+      if(highs.length >= 1) document.getElementById('lvlHod').textContent = fmtL(highs[highs.length-1]);
+      if(lows.length >= 1) document.getElementById('lvlLod').textContent = fmtL(lows[lows.length-1]);
+      if(opens.length >= 1) document.getElementById('lvlOpen').textContent = fmtL(opens[opens.length-1]);
+      if(highs.length >= 2) document.getElementById('lvlPDH').textContent = fmtL(highs[highs.length-2]);
+      if(lows.length >= 2) document.getElementById('lvlPDL').textContent = fmtL(lows[lows.length-2]);
+      
+      // ATR
+      updateATR(daily, dec);
+    }
+    
+    // Weekly data
+    const weekly = await fetchYahooCached(pair.yahoo, '4wk', '1wk');
+    if(weekly) {
+      const wq = weekly.indicators.quote[0];
+      const wh = wq.high.filter(x => x);
+      const wl = wq.low.filter(x => x);
+      if(wh.length >= 1) document.getElementById('lvlWH').textContent = fmtL(wh[wh.length-1]);
+      if(wl.length >= 1) document.getElementById('lvlWL').textContent = fmtL(wl[wl.length-1]);
+    }
+    
+    // Fibonacci for this pair
+    const fibData = await fetchYahooCached(pair.yahoo, '60d', '1d');
+    if(fibData) {
+      const fq = fibData.indicators.quote[0];
+      calcFibonacci(fq.high.filter(x => x), fq.low.filter(x => x), fq.close.filter(x => x), dec);
+    }
+    
+    dbg('📍 Niveaux ' + pairId + ' mis à jour', 'ok');
+  } catch(e) {
+    dbg('⚠️ Niveaux ' + pairId + ' erreur: ' + e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════
 // FIBONACCI + ATR
 // ═══════════════════════════════════════════
-function calcFibonacci(highs, lows, closes) {
+function calcFibonacci(highs, lows, closes, decimals) {
+  const dec = decimals || 2;
   if(highs.length < 3) return;
   const len = Math.min(60, highs.length);
   const recentHighs = highs.slice(-len); const recentLows = lows.slice(-len);
   let swingHigh = -Infinity, swingLow = Infinity; let shIdx = 0, slIdx = 0;
   for(let i = 0; i < len; i++) { if(recentHighs[i] > swingHigh) { swingHigh = recentHighs[i]; shIdx = i; } if(recentLows[i] < swingLow) { swingLow = recentLows[i]; slIdx = i; } }
-  const range = swingHigh - swingLow; if(range < 1) return;
+  const range = swingHigh - swingLow; if(range < 0.01) return;
   const uptrend = shIdx > slIdx;
   const levels = [0.236, 0.382, 0.5, 0.618, 0.786]; const ids = ['fib236','fib382','fib500','fib618','fib786'];
+  const lvlPairId = document.getElementById('levelsAsset')?.value || 'GC';
+  const cp = pairPrices[lvlPairId]?.price;
   levels.forEach((lvl, idx) => {
     let price = uptrend ? swingHigh - (range * lvl) : swingLow + (range * lvl);
     const el = document.getElementById(ids[idx]);
-    if(el) { el.textContent = price.toFixed(2); const cp = pairPrices['GC']?.price; if(cp && Math.abs(cp - price) / cp < 0.01) { el.style.color = 'var(--gold)'; el.style.fontWeight = '900'; el.parentElement.style.background = 'rgba(240,180,41,0.08)'; el.parentElement.style.borderLeftColor = 'var(--gold)'; } else { el.style.fontWeight = ''; el.parentElement.style.background = ''; } }
+    if(el) { el.textContent = price.toFixed(dec); if(cp && Math.abs(cp - price) / cp < 0.01) { el.style.color = 'var(--gold)'; el.style.fontWeight = '900'; el.parentElement.style.background = 'rgba(240,180,41,0.08)'; el.parentElement.style.borderLeftColor = 'var(--gold)'; } else { el.style.fontWeight = ''; el.parentElement.style.background = ''; } }
   });
   const ctx = document.getElementById('fibContext');
-  if(ctx) { ctx.innerHTML = (uptrend ? '↑' : '↓') + ' Swing H: ' + swingHigh.toFixed(0) + ' / L: ' + swingLow.toFixed(0) + ' (' + len + 'j Daily)<br><span style="color:var(--purple,#a78bfa);">' + (uptrend ? 'Retracement baissier depuis le sommet' : 'Retracement haussier depuis le creux') + '</span>'; }
+  if(ctx) { ctx.innerHTML = (uptrend ? '↑' : '↓') + ' Swing H: ' + swingHigh.toFixed(dec) + ' / L: ' + swingLow.toFixed(dec) + ' (' + len + 'j Daily)<br><span style="color:var(--purple,#a78bfa);">' + (uptrend ? 'Retracement baissier depuis le sommet' : 'Retracement haussier depuis le creux') + '</span>'; }
   window._fibData = { swingHigh, swingLow, uptrend };
 }
 
@@ -2674,7 +2775,7 @@ let priceAlerts = JSON.parse(localStorage.getItem('xaumitri49_alerts') || '[]');
 priceAlerts = priceAlerts.map(a => { if(!a.pair) a.pair = 'GC'; return a; });
 localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
 const PAIR_LABELS = {}; ALL_PAIRS.forEach(p => PAIR_LABELS[p.id] = p.sym);
-const PAIR_COLORS = { XAUUSD:'var(--gold)', XAGUSD:'var(--silver)', DXY:'var(--blue)', SPX500:'#34d399' };
+const PAIR_COLORS = {}; ALL_PAIRS.forEach(p => PAIR_COLORS[p.id] = p.color);
 
 function renderAlerts() {
   const l = document.getElementById('alertsList'); if(!l) return;
