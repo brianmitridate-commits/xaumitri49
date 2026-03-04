@@ -1309,7 +1309,15 @@ function switchLotTab(tab, btn) {
 // STATE — 🔧 FIX: utilise robustGet/robustSet pour la clé API
 // ═══════════════════════════════════════════
 let API_KEY = robustGet('xaumitri49_apikey') || '';
-// Nettoyer les valeurs invalides stockées
+// Nettoyer les valeurs invalides ou corrompues (caractères invisibles du copier-coller mobile)
+if(API_KEY) {
+  let cleaned = API_KEY.replace(/[\s\u00A0\u200B\u200C\u200D\uFEFF\r\n\t]/g, '').replace(/[^\x20-\x7E]/g, '').trim();
+  if(cleaned !== API_KEY) {
+    console.log('[XM49] Clé nettoyée au démarrage:', API_KEY.length, '→', cleaned.length, 'chars');
+    API_KEY = cleaned;
+    if(API_KEY.startsWith('sk-ant-')) { robustSet('xaumitri49_apikey', API_KEY); }
+  }
+}
 if(API_KEY && !API_KEY.startsWith('sk-ant-')) {
   API_KEY = '';
   robustRemove('xaumitri49_apikey');
@@ -1459,9 +1467,23 @@ function openModal() {
 function closeModal() { document.getElementById('apiModal').classList.remove('show'); }
 
 function saveApiKey() {
-  const key = document.getElementById('apiKeyInput').value.trim();
+  let raw = document.getElementById('apiKeyInput').value;
+  // 🔧 FIX MOBILE: Nettoyage AGRESSIF — supprime TOUT ce qui n'est pas la clé
+  let key = raw
+    .replace(/[\s\u00A0\u200B\u200C\u200D\uFEFF\r\n\t]/g, '') // espaces, zero-width, retours ligne
+    .replace(/[^\x20-\x7E]/g, '') // garder uniquement ASCII imprimable
+    .trim();
+  
+  dbg('🔑 Clé brute: ' + raw.length + ' chars → nettoyée: ' + key.length + ' chars', 'warn');
+  dbg('🔑 Début: "' + key.slice(0,20) + '..." Fin: "...' + key.slice(-8) + '"', 'warn');
+  
+  if(raw.length !== key.length) {
+    dbg('⚠️ ' + (raw.length - key.length) + ' caractères invisibles supprimés !', 'warn');
+  }
+  
   if(!key.startsWith('sk-ant-')) {
-    alert('❌ Clé invalide. Elle doit commencer par sk-ant-');
+    dbg('❌ Clé ne commence pas par sk-ant- : "' + key.slice(0,15) + '"', 'err');
+    alert('❌ Clé invalide. Elle doit commencer par sk-ant-\n\nReçu: "' + key.slice(0,20) + '..."\nLongueur: ' + key.length + ' chars');
     return;
   }
   const testBtn = document.querySelector('.modal-btn.confirm');
@@ -1500,8 +1522,13 @@ function saveApiKey() {
     } else {
       r.json().then(d => {
         const msg = d.error?.message || 'Erreur ' + r.status;
-        alert('❌ Clé refusée par Anthropic:\n' + msg + '\n\nStatus: ' + r.status);
-      }).catch(() => alert('❌ Erreur ' + r.status + ' — Vérifie ta clé sur console.anthropic.com'));
+        dbg('❌ Clé refusée: ' + msg, 'err');
+        dbg('❌ Clé envoyée: ' + key.length + ' chars, début: ' + key.slice(0,20) + '...', 'err');
+        alert('❌ Clé refusée par Anthropic:\n' + msg + '\n\nStatus: ' + r.status + '\nLongueur clé: ' + key.length + ' chars');
+      }).catch(() => {
+        dbg('❌ HTTP ' + r.status + ' — pas de body JSON', 'err');
+        alert('❌ Erreur ' + r.status + ' — Vérifie ta clé sur console.anthropic.com');
+      });
     }
     if(testBtn) testBtn.textContent = '✓ Activer l\'IA';
   }).catch(e => {
