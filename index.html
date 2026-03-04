@@ -142,7 +142,7 @@ body::before{
 @keyframes flashBorder{0%,100%{border-color:rgba(240,62,62,0.3);}50%{border-color:rgba(240,62,62,0.8);}}
 
 /* ═══ MAIN LAYOUT ═══ */
-.layout{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:10px;}
+.layout{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:10px;align-items:start;}
 
 /* ═══ CARD ═══ */
 .card{
@@ -500,7 +500,7 @@ body::before{
 @media (max-width:640px) {
   .wrap{padding:6px 8px;}
   .topbar{
-    height:auto;padding:10px 12px;gap:10px;
+    height:auto;padding:8px 10px;gap:6px;
     flex-wrap:wrap;
   }
   .topbar-right{width:100%;justify-content:space-between;}
@@ -610,7 +610,8 @@ body::before{
   .price-pill{font-size:9px;padding:5px 8px;min-width:auto;flex-shrink:0;}
   .ratio-pill,.tips-pill{font-size:8px;padding:3px 8px;flex-shrink:0;}
   .card{margin-bottom:0;}
-  .card-bd{padding:8px;}
+  .card-bd{padding:8px 10px;}
+  .card-hd{padding:8px 10px;font-size:10px;}
   .sent-pair-block{padding:8px;}
   .bias-hero{gap:4px;}
   .bias-tf-card{padding:6px 4px;}
@@ -619,6 +620,14 @@ body::before{
   .logo-text{font-size:16px;}
   .briefing-text-content{font-size:11px;line-height:1.5;}
   .sessions-timeline{display:none;}
+  /* Compact sessions */
+  .session-row{padding:6px 10px;}
+  .utc-offset-row{flex-wrap:wrap;gap:4px;font-size:9px;}
+  /* Better briefing on mobile */
+  .briefing-pair-select{gap:4px;}
+  .bp-chip{padding:3px 8px;font-size:9px;}
+  /* Scrollable columns */
+  .col-left,.col-center,.col-right{gap:8px;padding-bottom:16px;}
 }
 @media (max-width:400px) {
   .price-pill{font-size:8px;padding:4px 6px;}
@@ -755,11 +764,12 @@ body::before{
         <span>📊 Analyse de Marché</span>
         <div style="display:flex;align-items:center;gap:8px;">
           <select id="biasAssetSelect" onchange="changeBiasAsset(this.value);event.stopPropagation();" style="background:var(--bg0);border:1px solid var(--border);color:var(--gold);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;cursor:pointer;font-family:'Outfit',sans-serif;outline:none;">
-            <option value="XAUUSD">XAU/USD</option>
-            <option value="XAGUSD">XAG/USD</option>
+            <option value="GC">GC</option>
+            <option value="SI">SI</option>
             <option value="DXY">DXY</option>
-            <option value="SPX500">SPX500</option>
+            <option value="ES">ES</option>
             <option value="NQ">NQ</option>
+            <option value="YM">YM</option>
           </select>
           <span class="last-update" id="biasTime">—</span>
           <span class="hd-toggle">▾</span>
@@ -864,15 +874,26 @@ body::before{
           </div>
           <div class="briefing-pair-select" style="justify-content:center;">
             <span style="font-size:9px;color:var(--text3);margin-right:4px;">Paires :</span>
-            <button class="bp-chip selected" data-bp="XAUUSD" onclick="toggleBriefingPair('XAUUSD',this)">XAU/USD</button>
-            <button class="bp-chip selected" data-bp="XAGUSD" onclick="toggleBriefingPair('XAGUSD',this)">XAG/USD</button>
-            <button class="bp-chip" data-bp="DXY" onclick="toggleBriefingPair('DXY',this)">DXY</button>
-            <button class="bp-chip" data-bp="SPX500" onclick="toggleBriefingPair('SPX500',this)">SPX500</button>
+            <button class="bp-chip selected" data-bp="GC" onclick="toggleBriefingPair('GC',this)">GC</button>
+            <button class="bp-chip selected" data-bp="SI" onclick="toggleBriefingPair('SI',this)">SI</button>
+            <button class="bp-chip selected" data-bp="DXY" onclick="toggleBriefingPair('DXY',this)">DXY</button>
+            <button class="bp-chip selected" data-bp="ES" onclick="toggleBriefingPair('ES',this)">ES</button>
+            <button class="bp-chip" data-bp="NQ" onclick="toggleBriefingPair('NQ',this)">NQ</button>
+            <button class="bp-chip" data-bp="YM" onclick="toggleBriefingPair('YM',this)">YM</button>
           </div>
-          <div style="font-size:9px;color:rgba(255,255,255,0.55);margin-bottom:8px;">Max 2 paires pour économiser tes crédits</div>
-          <button id="briefingBtn" onclick="generateBriefing()" style="display:inline-flex;align-items:center;gap:8px;padding:12px 28px;border-radius:8px;font-size:13px;font-weight:800;background:linear-gradient(135deg,var(--gold),#b8860b);color:#000;border:none;cursor:pointer;font-family:'Outfit',sans-serif;box-shadow:0 4px 20px rgba(240,180,41,0.35);transition:all 0.2s;">
-            🧠 Générer mon Briefing du Jour
-          </button>
+          <div style="font-size:9px;color:rgba(255,255,255,0.55);margin-bottom:8px;">Max 4 paires · Sélectionne celles que tu trades</div>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+            <button id="briefingBtn" onclick="generateBriefing('essentiel')" style="display:inline-flex;align-items:center;gap:8px;padding:12px 28px;border-radius:8px;font-size:13px;font-weight:800;background:linear-gradient(135deg,var(--gold),#b8860b);color:#000;border:none;cursor:pointer;font-family:'Outfit',sans-serif;box-shadow:0 4px 20px rgba(240,180,41,0.35);transition:all 0.2s;">
+              ⚡ Briefing Essentiel
+            </button>
+            <button id="briefingFullBtn" onclick="generateBriefing('complet')" style="display:inline-flex;align-items:center;gap:8px;padding:12px 20px;border-radius:8px;font-size:11px;font-weight:700;background:transparent;color:var(--gold);border:1px solid rgba(240,180,41,0.35);cursor:pointer;font-family:'Outfit',sans-serif;transition:all 0.2s;">
+              🏛️ Briefing Institutionnel
+            </button>
+            <button id="preSessionBtn" style="display:none;align-items:center;gap:6px;padding:10px 16px;border-radius:8px;font-size:11px;font-weight:700;background:rgba(59,158,255,0.12);color:var(--blue);border:1px solid rgba(59,158,255,0.3);cursor:pointer;font-family:'Outfit',sans-serif;transition:all 0.2s;">
+              🇬🇧 Pré-London
+            </button>
+          </div>
+          <div style="font-size:8px;color:rgba(255,255,255,0.4);margin-top:6px;">⏱️ Prix Yahoo Finance (~15min delay vs COMEX live) · Niveaux fiables, prix indicatifs</div>
           <div id="briefingCachedNotice" style="display:none;margin-top:8px;font-size:9px;color:var(--green);">✅ Briefing du jour déjà généré</div>
         </div>
         <div id="briefingLoading" style="display:none;text-align:center;padding:20px;">
@@ -950,19 +971,25 @@ body::before{
         <div class="utc-offset-row">
           <span>⚙️ Fuseau :</span>
           <select id="utcOffsetSelect" onchange="saveUTCOffset(this.value);">
+            <option value="auto-paris">Paris (auto CET/CEST)</option>
+            <option value="auto-ny">New York (auto EST/EDT)</option>
             <option value="-5">UTC-5 (EST hiver)</option>
             <option value="-4">UTC-4 (EDT été)</option>
-            <option value="-6">UTC-6 (CST)</option>
-            <option value="-7">UTC-7 (MST)</option>
-            <option value="-8">UTC-8 (PST)</option>
             <option value="0">UTC+0 (GMT)</option>
-            <option value="1">UTC+1 (CET)</option>
-            <option value="2">UTC+2 (EET)</option>
+            <option value="1">UTC+1 (CET hiver)</option>
+            <option value="2">UTC+2 (CEST été)</option>
             <option value="3">UTC+3 (MSK)</option>
             <option value="8">UTC+8 (SGT)</option>
             <option value="9">UTC+9 (JST)</option>
           </select>
           <span id="localTimeDisplay" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--gold);">—</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:4px 8px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);">
+          <span style="font-size:9px;color:var(--text3);">🇺🇸 NY Session :</span>
+          <select id="nyDstSelect" onchange="saveNYDST(this.value);updateSessionsSimple();" style="background:var(--bg0);border:1px solid var(--border);color:var(--gold);font-size:9px;padding:2px 4px;border-radius:4px;cursor:pointer;">
+            <option value="winter">EST hiver (NY 14:30-21:00 UTC)</option>
+            <option value="summer">EDT été (NY 13:30-20:00 UTC)</option>
+          </select>
         </div>
         <div class="sessions-timeline" style="margin-bottom:8px;">
           <div class="session-seg asia" style="left:95.8%;width:16.7%;"></div>
@@ -993,8 +1020,11 @@ body::before{
         <span>📍 Niveaux Clés</span>
         <div style="display:flex;align-items:center;gap:8px;">
           <select id="levelsAsset" onchange="updateLevels()" onclick="event.stopPropagation()" style="background:transparent;border:none;color:var(--gold);font-size:9px;cursor:pointer;">
-            <option value="gold">GOLD</option>
-            <option value="silver">SILVER</option>
+            <option value="gold">GC</option>
+            <option value="silver">SI</option>
+            <option value="es">ES</option>
+            <option value="nq">NQ</option>
+            <option value="ym">YM</option>
           </select>
           <span class="hd-toggle">▾</span>
         </div>
@@ -1022,10 +1052,12 @@ body::before{
           <div style="font-size:8px;letter-spacing:0.08em;text-transform:uppercase;color:var(--orange);font-weight:700;margin-bottom:6px;">&#x1F514; ALERTES DE PRIX <span style="font-size:8px;color:rgba(255,255,255,0.5);font-weight:400;text-transform:none;margin-left:4px;">(Futures COMEX via Yahoo)</span></div>
           <div style="display:flex;gap:4px;margin-bottom:6px;">
             <select id="alertPairSelect" style="background:var(--bg3);border:1px solid var(--border);color:var(--text1);font-size:9px;padding:5px 4px;border-radius:5px;outline:none;min-width:75px;">
-              <option value="XAUUSD" style="color:#f0b429;">XAU/USD</option>
-              <option value="XAGUSD" style="color:#c0c0c0;">XAG/USD</option>
+              <option value="GC" style="color:#f0b429;">GC</option>
+              <option value="SI" style="color:#c0c0c0;">SI</option>
               <option value="DXY" style="color:#3b9eff;">DXY</option>
-              <option value="SPX500" style="color:#34d399;">SPX500</option>
+              <option value="ES" style="color:#34d399;">ES</option>
+              <option value="NQ" style="color:#8b5cf6;">NQ</option>
+              <option value="YM" style="color:#f59e0b;">YM</option>
             </select>
             <input type="number" id="alertPriceInput" placeholder="Prix" step="0.01" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text1);font-family:'JetBrains Mono',monospace;font-size:10px;padding:5px 8px;border-radius:5px;outline:none;">
             <button onclick="addPriceAlert()" style="background:var(--gold);color:var(--bg0);border:none;border-radius:5px;font-size:10px;font-weight:700;padding:5px 10px;cursor:pointer;">+</button>
@@ -1054,7 +1086,7 @@ body::before{
       <span class="mnav-icon">⚡</span>Briefing
     </button>
     <button class="mnav-btn" onclick="mobileNav('right',this)">
-      <span class="mnav-icon">📊</span>Données
+      <span class="mnav-icon">📈</span>Données
     </button>
   </div>
 </nav>
@@ -1133,17 +1165,24 @@ function diagStorage() {
 }
 
 // ═══════════════════════════════════════════
-// PAIRES CONFIG
+// PAIRES CONFIG — FUTURES
 // ═══════════════════════════════════════════
 const ALL_PAIRS = [
-   { id:'XAUUSD', sym:'XAU/USD', yahoo:'GC=F',    color:'var(--gold)',   group:'cfd',   decimals:2 },
-   { id:'XAGUSD', sym:'XAG/USD', yahoo:'SI=F',    color:'var(--silver)', group:'cfd',   decimals:3 },
-   { id:'DXY',    sym:'DXY',     yahoo:'DX-Y.NYB',color:'var(--blue)',   group:'macro', decimals:3 },
-   { id:'SPX500', sym:'SPX500',  yahoo:'^GSPC',   color:'#34d399',      group:'macro', decimals:0 },
+   { id:'GC',  sym:'GC',  yahoo:'GC=F',    color:'var(--gold)',   group:'cfd',   decimals:2, fullName:'Gold Futures' },
+   { id:'SI',  sym:'SI',  yahoo:'SI=F',    color:'var(--silver)', group:'cfd',   decimals:3, fullName:'Silver Futures' },
+   { id:'DXY', sym:'DXY', yahoo:'DX-Y.NYB',color:'var(--blue)',   group:'macro', decimals:3, fullName:'US Dollar Index' },
+   { id:'ES',  sym:'ES',  yahoo:'^GSPC',   color:'#34d399',      group:'macro', decimals:0, fullName:'S&P 500 Futures' },
+   { id:'NQ',  sym:'NQ',  yahoo:'NQ=F',    color:'#8b5cf6',      group:'macro', decimals:0, fullName:'Nasdaq 100 Futures' },
+   { id:'YM',  sym:'YM',  yahoo:'YM=F',    color:'#f59e0b',      group:'macro', decimals:0, fullName:'Dow Jones Futures' },
  ];
 
-const DEFAULT_FAVS = ['XAUUSD','XAGUSD','DXY','SPX500'];
-let favorites = JSON.parse(localStorage.getItem('xaumitri49_favs') || JSON.stringify(DEFAULT_FAVS));
+const DEFAULT_FAVS = ['GC','SI','DXY','ES','NQ','YM'];
+let favorites = JSON.parse(localStorage.getItem('xaumitri49_favs') || 'null');
+// Migration: si anciennes paires (XAUUSD etc), reset aux nouvelles
+if(!favorites || favorites.includes('XAUUSD') || favorites.includes('SPX500')) {
+  favorites = DEFAULT_FAVS;
+  localStorage.setItem('xaumitri49_favs', JSON.stringify(favorites));
+}
 let pairPrices = {};
 
 function saveFavs() {
@@ -1191,8 +1230,8 @@ function renderPriceBar() {
     bar.appendChild(document.createElement('div'));
   }
 
-  const goldP = pairPrices['XAUUSD']?.price;
-  const silverP = pairPrices['XAGUSD']?.price;
+  const goldP = pairPrices['GC']?.price;
+  const silverP = pairPrices['SI']?.price;
   if(goldP && silverP && silverP > 0) {
     const ratio = goldP / silverP;
     const ratioDiv = document.createElement('div');
@@ -1562,16 +1601,71 @@ function updateKillzones(now) {}
 // ═══════════════════════════════════════════
 // SESSIONS SIMPLIFIÉES
 // ═══════════════════════════════════════════
-let utcOffset = parseFloat(localStorage.getItem('xaumitri49_utc_offset') || '-5');
+let utcOffset = localStorage.getItem('xaumitri49_utc_offset') || 'auto-paris';
+let nyDST = localStorage.getItem('xaumitri49_ny_dst') || 'winter';
+
+function getAutoOffset(zone) {
+  // Détecte automatiquement l'heure d'été
+  const now = new Date();
+  const jan = new Date(now.getFullYear(), 0, 1);
+  const jul = new Date(now.getFullYear(), 6, 1);
+  if(zone === 'auto-paris') {
+    // Paris: CET (UTC+1) en hiver, CEST (UTC+2) en été
+    // L'Europe change le dernier dimanche de mars et octobre
+    const isDST = now.getTimezoneOffset() < jan.getTimezoneOffset() || 
+                  (now.getMonth() >= 2 && now.getMonth() <= 9); // mars-octobre approximatif
+    // Méthode plus fiable: utiliser Intl
+    try {
+      const fmt = new Intl.DateTimeFormat('en', { timeZone: 'Europe/Paris', hour: 'numeric', hour12: false });
+      const parisH = parseInt(fmt.format(now));
+      const utcH = now.getUTCHours();
+      let diff = parisH - utcH;
+      if(diff < -12) diff += 24;
+      if(diff > 12) diff -= 24;
+      return diff;
+    } catch(e) { return now.getMonth() >= 2 && now.getMonth() <= 9 ? 2 : 1; }
+  }
+  if(zone === 'auto-ny') {
+    try {
+      const fmt = new Intl.DateTimeFormat('en', { timeZone: 'America/New_York', hour: 'numeric', hour12: false });
+      const nyH = parseInt(fmt.format(now));
+      const utcH = now.getUTCHours();
+      let diff = nyH - utcH;
+      if(diff < -12) diff += 24;
+      if(diff > 12) diff -= 24;
+      return diff;
+    } catch(e) { return nyDST === 'summer' ? -4 : -5; }
+  }
+  return parseFloat(zone) || 1;
+}
+
+function getEffectiveOffset() {
+  if(utcOffset === 'auto-paris' || utcOffset === 'auto-ny') return getAutoOffset(utcOffset);
+  return parseFloat(utcOffset) || 1;
+}
+
+// NY session hours depend on DST
+function getNYSessionUTC() {
+  // CME Regular Trading Hours: 9:30 AM - 4:00 PM ET
+  if(nyDST === 'summer') return { start: 13.5, end: 20 }; // EDT: UTC-4
+  return { start: 14.5, end: 21 }; // EST: UTC-5
+}
 
 function saveUTCOffset(val) {
-  utcOffset = parseFloat(val);
+  utcOffset = val;
   localStorage.setItem('xaumitri49_utc_offset', val);
   updateSessionsSimple();
 }
 
+function saveNYDST(val) {
+  nyDST = val;
+  localStorage.setItem('xaumitri49_ny_dst', val);
+  updateSessionsSimple();
+}
+
 function utcToLocal(utcH) {
-  let l = utcH + utcOffset;
+  const eo = getEffectiveOffset();
+  let l = utcH + eo;
   if(l < 0) l += 24;
   if(l >= 24) l -= 24;
   return String(Math.floor(l)).padStart(2,'0') + ':' + String(Math.round((l % 1) * 60)).padStart(2,'0');
@@ -1580,19 +1674,22 @@ function utcToLocal(utcH) {
 function updateSessionsSimple() {
   const now = new Date();
   const h = now.getUTCHours() + now.getUTCMinutes() / 60;
+  const eo = getEffectiveOffset();
 
-  const ld = new Date(now.getTime() + utcOffset * 3600000);
+  const ld = new Date(now.getTime() + eo * 3600000);
   const ltEl = document.getElementById('localTimeDisplay');
   if(ltEl) ltEl.textContent = String(ld.getUTCHours()).padStart(2,'0') + ':' + String(ld.getUTCMinutes()).padStart(2,'0');
 
+  const nySess = getNYSessionUTC();
+  
   const ah = document.getElementById('asiaHoursLocal'); if(ah) ah.textContent = utcToLocal(23) + ' – ' + utcToLocal(8);
   const lh = document.getElementById('londonHoursLocal'); if(lh) lh.textContent = utcToLocal(8) + ' – ' + utcToLocal(17);
-  const nh = document.getElementById('nyHoursLocal'); if(nh) nh.textContent = utcToLocal(13) + ' – ' + utcToLocal(22);
+  const nh = document.getElementById('nyHoursLocal'); if(nh) nh.textContent = utcToLocal(nySess.start) + ' – ' + utcToLocal(nySess.end);
 
   const sessions = [
     { rowId:'sessionRowAsia', statusId:'asiaStatus', cdId:'asiaCountdown', start:23, end:8, wrap:true, label:'ASIA' },
     { rowId:'sessionRowLondon', statusId:'londonStatus', cdId:'londonCountdown', start:8, end:17, wrap:false, label:'LONDON' },
-    { rowId:'sessionRowNY', statusId:'nyStatus', cdId:'nyCountdown', start:13, end:22, wrap:false, label:'NY' },
+    { rowId:'sessionRowNY', statusId:'nyStatus', cdId:'nyCountdown', start:nySess.start, end:nySess.end, wrap:false, label:'NY' },
   ];
   const activeNames = [];
 
@@ -1631,6 +1728,10 @@ function updateSessionsSimple() {
   const sel = document.getElementById('utcOffsetSelect');
   const saved = localStorage.getItem('xaumitri49_utc_offset');
   if(sel && saved) sel.value = saved;
+  if(sel && !saved) sel.value = 'auto-paris'; // Défaut: Paris auto
+  const dstSel = document.getElementById('nyDstSelect');
+  const savedDst = localStorage.getItem('xaumitri49_ny_dst');
+  if(dstSel && savedDst) dstSel.value = savedDst;
 })();
 
 // ═══════════════════════════════════════════
@@ -1693,7 +1794,7 @@ function closePairPanel() {
 // ═══════════════════════════════════════════
 // BIAS ASSET SELECTOR
 // ═══════════════════════════════════════════
-const BIAS_YAHOO = { XAUUSD:'GC=F', XAGUSD:'SI=F', DXY:'DX-Y.NYB', SPX500:'^GSPC' };
+const BIAS_YAHOO = { GC:'GC=F', SI:'SI=F', DXY:'DX-Y.NYB', ES:'^GSPC', NQ:'NQ=F', YM:'YM=F' };
 
 async function changeBiasAsset(id) {
   const yahoo = BIAS_YAHOO[id]; if(!yahoo) return;
@@ -1786,11 +1887,15 @@ function fmt(v,d=2){ return v!=null ? parseFloat(v).toFixed(d) : '—'; }
 async function loadPrices() {
   const pairDataMap = {};
   const startT = Date.now();
+  const isMobile = window.innerWidth <= 640;
+  
+  // MOBILE: ne charger que les favoris pour éviter le lag
+  const pairsToLoad = isMobile ? ALL_PAIRS.filter(p => favorites.includes(p.id)) : ALL_PAIRS;
   
   // PHASE 1: Charger les prix en parallèle (priorité haute)
   const [gw] = await Promise.all([
     fetchYahooCached('GC=F','4wk','1wk'),
-    ...ALL_PAIRS.map(async p => {
+    ...pairsToLoad.map(async p => {
       try {
         const d = await fetchYahooCached(p.yahoo, '5d', '1d');
         if(d) {
@@ -1810,7 +1915,7 @@ async function loadPrices() {
   renderPriceBar();
   dbg('💰 Prix chargés en ' + (Date.now()-startT) + 'ms', 'ok');
 
-  const gd = pairDataMap['XAUUSD'];
+  const gd = pairDataMap['GC'];
   if(gd) {
     goldData = gd;
     const q = gd.indicators.quote[0];
@@ -1835,6 +1940,8 @@ async function loadPrices() {
   document.getElementById('biasTime').textContent = new Date().toLocaleTimeString('fr-FR',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC';
   
   // PHASE 2: Calculs lourds DIFFÉRÉS (ne bloque pas l'affichage)
+  // Mobile: délai plus long pour laisser l'UI respirer
+  const phase2Delay = window.innerWidth <= 640 ? 500 : 100;
   setTimeout(() => {
     if(gd) {
       fetchYahooCached('GC=F', '60d', '1d').then(fibData => {
@@ -1853,7 +1960,7 @@ async function loadPrices() {
     ]).then(() => {
       dbg('📊 Calculs complets en ' + (Date.now()-startT) + 'ms', 'ok');
     }).catch(e => console.log('Parallel load error:', e));
-  }, 100);
+  }, phase2Delay);
 }
 
 function updateMacroRiskScore() {
@@ -1862,7 +1969,7 @@ function updateMacroRiskScore() {
   if(vixVal > 25) score += 20; else if(vixVal > 18) score += 8; else score -= 10;
   const dxyData = pairPrices['DXY'];
   if(dxyData && dxyData.chg > 0) score += 10; else if(dxyData && dxyData.chg < 0) score -= 10;
-  const spxData = pairPrices['SPX500'];
+  const spxData = pairPrices['ES'];
   if(spxData && spxData.chg < 0) score += 12; else if(spxData && spxData.chg > 0) score -= 8;
   score = Math.max(5, Math.min(95, score));
   const needle = document.getElementById('riskNeedle'); if(needle) needle.style.left = score + '%';
@@ -1992,14 +2099,14 @@ function renderBiasCards(r) {
 // ═══════════════════════════════════════════
 // BRIEFING DU JOUR
 // ═══════════════════════════════════════════
-let briefingPairs = ['XAUUSD','XAGUSD'];
+let briefingPairs = ['GC','SI','DXY','ES'];
 function toggleBriefingPair(pair, btn) {
   if(briefingPairs.includes(pair)) {
     if(briefingPairs.length <= 1) return;
     briefingPairs = briefingPairs.filter(p => p !== pair);
     btn.classList.remove('selected');
   } else {
-    if(briefingPairs.length >= 2) {
+    if(briefingPairs.length >= 4) {
       const removed = briefingPairs.shift();
       const el = document.querySelector('.bp-chip[data-bp="'+removed+'"]');
       if(el) el.classList.remove('selected');
@@ -2039,15 +2146,29 @@ function showBriefingResult(text, verdict, bias, date, fromCache) {
 }
 
 function clearBriefing() {
+  ['essentiel','complet'].forEach(m => {
+    const k = 'xaumitri49_briefing_'+m;
+    localStorage.removeItem(k+'_date');localStorage.removeItem(k+'_text');localStorage.removeItem(k+'_verdict');localStorage.removeItem(k+'_bias');
+  });
+  // Also clear old format
   localStorage.removeItem('xaumitri49_briefing_date');localStorage.removeItem('xaumitri49_briefing_text');localStorage.removeItem('xaumitri49_briefing_verdict');localStorage.removeItem('xaumitri49_briefing_bias');
   document.getElementById('briefingResult').style.display = 'none';document.getElementById('briefingLoading').style.display = 'none';document.getElementById('briefingIdle').style.display = 'block';document.getElementById('briefingCachedNotice').style.display = 'none';
-  const btn = document.getElementById('briefingBtn');
-  btn.textContent = '🧠 Générer mon Briefing du Jour';btn.style.background = 'linear-gradient(135deg,var(--gold),#b8860b)';btn.style.color = '#000';btn.style.boxShadow = '0 4px 20px rgba(240,180,41,0.35)';btn.style.fontSize = '13px';btn.style.padding = '12px 28px';
-  generateBriefing();
 }
 
 function checkCachedBriefing() {
   const today = new Date().toISOString().slice(0,10);
+  // Check both modes, prefer complet
+  for(const mode of ['complet','essentiel']) {
+    const k = 'xaumitri49_briefing_'+mode;
+    const cached = localStorage.getItem(k+'_date');
+    if(cached === today) {
+      const text = localStorage.getItem(k+'_text');
+      const verdict = localStorage.getItem(k+'_verdict');
+      const bias = localStorage.getItem(k+'_bias');
+      if(text) { showBriefingResult(text, verdict, bias ? JSON.parse(bias) : null, today, true); return; }
+    }
+  }
+  // Check old format too
   const cached = localStorage.getItem('xaumitri49_briefing_date');
   if(cached === today) {
     const text = localStorage.getItem('xaumitri49_briefing_text');
@@ -2109,7 +2230,7 @@ function analyzeStructure(closes, highs, lows, emaLen, pivotLen) {
 }
 
 async function computeBiasProV2() {
-  const biasAsset = document.getElementById('biasAssetSelect')?.value || 'XAUUSD';
+  const biasAsset = document.getElementById('biasAssetSelect')?.value || 'GC';
   const yahoo = BIAS_YAHOO[biasAsset]; if(!yahoo) return;
   const dashboard = document.getElementById('biasProDashboard');
   const verdict = document.getElementById('biasProVerdict');
@@ -2170,11 +2291,11 @@ function computeRiskForPair(pairId) {
   if(vixVal > 30) score += 25; else if(vixVal > 25) score += 18; else if(vixVal > 20) score += 8; else if(vixVal < 15) score -= 12; else score -= 5;
   const dxyP = pairPrices['DXY'];
   if(dxyP) { if(dxyP.chgPct > 0.5) score += 15; else if(dxyP.chgPct > 0) score += 8; else if(dxyP.chgPct < -0.5) score -= 15; else if(dxyP.chgPct < 0) score -= 8; }
-  const spxP = pairPrices['SPX500'];
-  if(spxP) { const isGS=['XAUUSD','XAGUSD','GC','SI'].includes(pairId); if(isGS){if(spxP.chgPct<-1)score+=15;else if(spxP.chgPct<0)score+=5;else if(spxP.chgPct>1)score-=10;}else{if(spxP.chgPct>0)score-=8;else score+=8;} }
+  const spxP = pairPrices['ES'];
+  if(spxP) { const isGS=['GC','SI'].includes(pairId); if(isGS){if(spxP.chgPct<-1)score+=15;else if(spxP.chgPct<0)score+=5;else if(spxP.chgPct>1)score-=10;}else{if(spxP.chgPct>0)score-=8;else score+=8;} }
   const tnx = pairPrices['US10Y'];
   if(tnx && tnx.price > 4.5) score += 8; else if(tnx && tnx.price < 3.5) score -= 8;
-  if(window._biasProResults?.D) { const isGS=['XAUUSD','XAGUSD','GC','SI'].includes(pairId); if(isGS){if(window._biasProResults.D.trendBias===-1)score+=10;else if(window._biasProResults.D.trendBias===1)score-=8;} }
+  if(window._biasProResults?.D) { const isGS=['GC','SI'].includes(pairId); if(isGS){if(window._biasProResults.D.trendBias===-1)score+=10;else if(window._biasProResults.D.trendBias===1)score-=8;} }
   score = Math.max(5, Math.min(95, score));
   const needle = document.getElementById('riskNeedle'); if(needle) needle.style.left = score+'%';
   const labelEl = document.getElementById('riskLabel'), sub = document.getElementById('riskSub');
@@ -2189,7 +2310,7 @@ function computeRiskForPair(pairId) {
 async function loadVolumes() {
   const vl = document.getElementById('volumeList'); if(!vl) return;
   vl.innerHTML = '<div style="text-align:center;padding:10px;font-size:10px;color:var(--text3);"><span class="spin">⟳</span> Chargement...</div>';
-  const pairs=[{id:'XAUUSD',sym:'XAU/USD',yahoo:'GC=F',color:'var(--gold)'},{id:'XAGUSD',sym:'XAG/USD',yahoo:'SI=F',color:'var(--silver)'},{id:'DXY',sym:'DXY',yahoo:'DX-Y.NYB',color:'var(--blue)'},{id:'SPX500',sym:'SPX500',yahoo:'^GSPC',color:'#34d399'}];
+  const pairs=ALL_PAIRS.map(p=>({id:p.id,sym:p.sym,yahoo:p.yahoo,color:p.color}));
   const vd=[]; let mx=0;
   for(const p of pairs){try{const d=await fetchYahooCached(p.yahoo,'5d','1d');if(d){const vs=d.indicators.quote[0].volume.filter(x=>x);const tv=vs[vs.length-1]||0,pv=vs[vs.length-2]||tv;const vc=pv?((tv-pv)/pv*100):0;const av=vs.length>1?vs.slice(0,-1).reduce((a,b)=>a+b,0)/(vs.length-1):tv;vd.push({...p,vol:tv,volChg:vc,avgVol:av,ratio:av?tv/av:1});if(tv>mx)mx=tv;}}catch(e){}}
   if(!vd.length){vl.innerHTML='<div style="text-align:center;padding:10px;font-size:10px;color:var(--text3);">⚠️ Volumes indisponibles</div>';return;}
@@ -2201,12 +2322,15 @@ const _ocba = changeBiasAsset;
 changeBiasAsset = async function(id) { await _ocba(id); await computeBiasProV2(); };
 
 // BRIEFING OVERRIDE
-generateBriefing = async function() {
+generateBriefing = async function(mode) {
+  mode = mode || 'essentiel';
   if(!API_KEY) { openModal(); return; }
   const today = new Date().toISOString().slice(0,10);
-  const cached = localStorage.getItem('xaumitri49_briefing_date');
-  if(cached === today) { const st=localStorage.getItem('xaumitri49_briefing_text'); const sv=localStorage.getItem('xaumitri49_briefing_verdict'); const sb=localStorage.getItem('xaumitri49_briefing_bias'); if(st){showBriefingResult(st,sv,sb?JSON.parse(sb):null,today,true);return;} }
+  const cacheKey = 'xaumitri49_briefing_'+mode;
+  const cached = localStorage.getItem(cacheKey+'_date');
+  if(cached === today) { const st=localStorage.getItem(cacheKey+'_text'); const sv=localStorage.getItem(cacheKey+'_verdict'); const sb=localStorage.getItem(cacheKey+'_bias'); if(st){showBriefingResult(st,sv,sb?JSON.parse(sb):null,today,true);return;} }
   document.getElementById('briefingIdle').style.display='none';document.getElementById('briefingResult').style.display='none';document.getElementById('briefingLoading').style.display='block';
+  document.querySelector('#briefingLoading div:last-child').textContent = mode === 'complet' ? 'Claude prépare ton briefing institutionnel...' : 'Claude analyse le marché...';
   const pi=[];
   for(const pid of briefingPairs){const pp=pairPrices[pid];const dec=ALL_PAIRS.find(p=>p.id===pid)?.decimals||2;pi.push(pid+': '+(pp?parseFloat(pp.price).toFixed(dec):'--')+' ('+(pp?(pp.chg>=0?'+':'')+pp.chgPct.toFixed(2)+'%':'--')+')');}
   const dxy=pairPrices['DXY']?.price?.toFixed(3)||'--';
@@ -2220,15 +2344,137 @@ generateBriefing = async function() {
   const ew=we.map(e=>e.date+' '+e.time+' - '+e.title).join('\n');
   const cs=document.getElementById('cotGoldSent')?.textContent||'--';
   const rl=document.getElementById('riskLabel')?.textContent||'--';
-  const prompt="Tu es l'assistant trading personnel de XauMitri49.\nBriefing du jour en francais, direct et actionnable.\n\n=== PAIRES ===\n"+pi.join('\n')+"\n\n=== MARCHE ===\nDate: "+today+" | DXY: "+dxy+"\n\n=== BIAIS ("+briefingPairs[0]+") ===\nWeekly: "+wB+" | Daily: "+dB+" | H1: "+h1B+"\nEMA200 Daily: "+(dA?'AU-DESSUS':'EN-DESSOUS')+" | EMA200 H1: "+(h1A?'AU-DESSUS':'EN-DESSOUS')+"\nScore Pro: "+pS+" - Verdict: "+pV+"\n\n=== NIVEAUX ===\nHOD: "+hod+" | LOD: "+lod+" | Open: "+opD+"\n\n=== ANNONCES ===\n"+et+"\n\n=== SEMAINE ===\n"+ew+"\n\n=== COT ===\n"+cs+"\n\n=== MACRO ===\nRisk: "+rl+"\n\nFORMAT:\nPour chaque paire ("+briefingPairs.join(' + ')+"):\n\n# BIAIS SWING (Daily/Weekly)\n[1 phrase par paire]\n\n## BIAIS DAY TRADING (H1)\n[1 phrase par paire]\n\n## ANNONCES DU JOUR\n[playbook si annonces]\n\n## SIGNAL COT\n[1 phrase]\n\n## RISK-ON/OFF\n[1 phrase]\n\n## NIVEAUX A SURVEILLER\n[3 niveaux max par paire]\n\n## VERDICT DU JOUR\n[TRADE LONG / TRADE SHORT / WAIT + condition]";
+
+  // Données communes injectées
+  const dataBlock = "=== PRIX LIVE ===\n"+pi.join('\n')+"\n\n=== MARCHE ===\nDate: "+today+" | DXY: "+dxy+"\n\n=== BIAIS ("+briefingPairs[0]+") ===\nWeekly: "+wB+" | Daily: "+dB+" | H1: "+h1B+"\nEMA200 Daily: "+(dA?'AU-DESSUS':'EN-DESSOUS')+" | EMA200 H1: "+(h1A?'AU-DESSUS':'EN-DESSOUS')+"\nScore Pro: "+pS+" - Verdict: "+pV+"\n\n=== NIVEAUX GC ===\nHOD: "+hod+" | LOD: "+lod+" | Open: "+opD+"\n\n=== ANNONCES DU JOUR ===\n"+et+"\n\n=== SEMAINE ===\n"+ew+"\n\n=== COT ===\n"+cs+"\n\n=== MACRO ===\nRisk: "+rl;
+
+  let prompt, maxTk;
+
+  if(mode === 'pre-london' || mode === 'pre-ny') {
+    // ═══ BRIEFING PRÉ-SESSION ═══
+    const session = mode === 'pre-london' ? 'LONDON' : 'NEW YORK';
+    const prevSession = mode === 'pre-london' ? 'ASIA' : 'LONDON';
+    maxTk = 1200;
+    prompt = `Tu es un Senior Macro Trader institutionnel. La session ${session} va ouvrir.
+
+${dataBlock}
+
+Instruments : ${briefingPairs.join(', ')}
+
+Analyse en français, direct et précis :
+
+1. RÉSUMÉ SESSION ${prevSession}
+Que s'est-il passé ? Quels niveaux ont été touchés/balayés ? Quel volume ?
+
+2. SETUP PRÉ-${session} (pour chaque instrument : ${briefingPairs.join(', ')})
+• Biais pour les 4 prochaines heures : LONG / SHORT / WAIT
+• Zone d'entrée précise (niveau exact)
+• TP1 et TP2
+• SL
+• Trigger de confirmation (BOS, FVG fill, OB rejection...)
+• R:R estimé
+
+3. LIQUIDITÉ NON-PRISE
+• Buy-Side Liquidity (BSL) : stops au-dessus de quels niveaux ?
+• Sell-Side Liquidity (SSL) : stops en-dessous de quels niveaux ?
+• Quel pool sera probablement ciblé en ${session} ?
+
+4. CORRÉLATIONS ACTIVES
+Comment utiliser DXY et ES pour confirmer les setups Gold/Silver ?
+
+5. VERDICT
+1 seul trade prioritaire pour ${session} : instrument, direction, zone, TP, SL, R:R.
+Si rien de propre → WAIT.
+
+Niveaux PRÉCIS. Pas de blabla.`;
+
+  } else if(mode === 'complet') {
+    // ═══ BRIEFING INSTITUTIONNEL COMPLET ═══
+    maxTk = 2000;
+    prompt = `Tu es un Senior Macro Trader & Strategist sur le desk institutionnel d'une banque tier-1.
+Tu gères un book multi-actifs futures. Analyse en français, factuel et data-driven.
+
+${dataBlock}
+
+Instruments : ${briefingPairs.join(', ')}
+
+Produis le DAILY INSTITUTIONAL BRIEFING :
+
+1. MACRO CONTEXT
+- Events des dernières 24h impactant ces actifs
+- Calendrier éco du jour (events haute importance + heure UTC + impact par actif)
+- Corrélations inter-marchés actives (Gold vs DXY, ES vs DXY, Silver/Gold ratio)
+- Risk-On vs Risk-Off : évaluation avec justification
+
+2. ANALYSE PAR INSTRUMENT (pour ${briefingPairs.join(', ')})
+Pour chaque :
+• Biais : HAUSSIER/BAISSIER/NEUTRE + conviction /10
+• Structure : HH+HL ou LH+LL sur D1, H4, H1
+• Position vs EMA200
+• Zone Premium (vente) : Fib 71-88.2% du swing + confluence
+• Zone Discount (achat) : Fib 71-88.2% + confluence
+• Niveaux clés : PDH/PDL, chiffres ronds, liquidité
+• Scénario primaire : entrée, TP1/TP2, SL, R:R
+
+3. MATRICE CORRÉLATION
+Comment le mouvement d'un actif confirme/invalide les autres.
+
+4. RISK MANAGEMENT
+• ATR D1 par instrument
+• Sizing : agressif/normal/réduit
+• Heures à éviter
+• Max trades recommandés
+
+5. VERDICT FINAL
+1 ligne par actif : [DIRECTION] — [ZONE] — [CONVICTION /10]
+Trade du jour : le setup avec le meilleur R:R
+
+Niveaux PRÉCIS (pas "autour de"). Si un setup n'est pas clair → NO TRADE.`;
+
+  } else {
+    // ═══ BRIEFING ESSENTIEL (rapide) ═══
+    maxTk = 900;
+    prompt = `Tu es un Senior Macro Trader institutionnel.
+Briefing du jour en français, direct et actionnable.
+
+${dataBlock}
+
+FORMAT pour chaque paire (${briefingPairs.join(' + ')}) :
+
+# BIAIS SWING (Daily/Weekly)
+[1 phrase par paire avec conviction /10]
+
+## BIAIS DAY TRADING (H1)
+[1 phrase par paire]
+
+## ZONES D'INTÉRÊT
+[Pour chaque paire : 1 zone d'achat (discount) + 1 zone de vente (premium) avec niveaux PRÉCIS]
+
+## ANNONCES DU JOUR
+[playbook si annonces]
+
+## CORRÉLATIONS ACTIVES
+[DXY vs Gold, ES vs Gold, Silver/Gold ratio — 2 phrases max]
+
+## NIVEAUX A SURVEILLER
+[3 niveaux max par paire]
+
+## VERDICT DU JOUR
+[TRADE LONG / TRADE SHORT / WAIT + condition + R:R estimé]
+Trade du jour : 1 seul, le plus propre`;
+  }
+
   try {
-    const text = await claudeAPI(prompt, 900);
-    const vm = text.match(/VERDICT DU JOUR\n(.+)/);
+    dbg('📊 Briefing '+mode+' lancé ('+briefingPairs.join(',')+')...', 'ok');
+    const text = await claudeAPI(prompt, maxTk);
+    const vm = text.match(/VERDICT[^\n]*\n(.+)/);
     const vt = vm ? vm[1].trim() : '';
-    localStorage.setItem('xaumitri49_briefing_date', today);localStorage.setItem('xaumitri49_briefing_text', text);localStorage.setItem('xaumitri49_briefing_verdict', vt);localStorage.setItem('xaumitri49_briefing_bias', JSON.stringify({swing:dB,day:h1B,weekly:wB}));
+    localStorage.setItem(cacheKey+'_date', today);localStorage.setItem(cacheKey+'_text', text);localStorage.setItem(cacheKey+'_verdict', vt);localStorage.setItem(cacheKey+'_bias', JSON.stringify({swing:dB,day:h1B,weekly:wB}));
     showBriefingResult(text, vt, {swing:dB,day:h1B,weekly:wB}, today, false);
+    dbg('✅ Briefing '+mode+' OK', 'ok');
   } catch(e) {
     document.getElementById('briefingLoading').style.display='none';document.getElementById('briefingIdle').style.display='block';
+    dbg('❌ Briefing erreur: '+e.message, 'err');
     alert('Erreur API: '+e.message);
   }
 };
@@ -2315,9 +2561,9 @@ async function computeSentimentForPair(pairId, yahooSym, color) {
 async function computeAllSentiment() {
   const module = document.getElementById('sentimentModule'); if(!module) return;
   module.innerHTML = '<div style="text-align:center;padding:12px;font-size:10px;color:var(--text3);"><span class="spin">⟳</span> Calcul sentiment...</div>';
-  const pairs = [{ id: 'XAUUSD', sym: 'XAU/USD', yahoo: 'GC=F', color: 'var(--gold)' },{ id: 'XAGUSD', sym: 'XAG/USD', yahoo: 'SI=F', color: 'var(--silver)' },];
+  const pairs = [{ id: 'GC', sym: 'GC', yahoo: 'GC=F', color: 'var(--gold)' },{ id: 'SI', sym: 'SI', yahoo: 'SI=F', color: 'var(--silver)' },];
   const biasAsset = document.getElementById('biasAssetSelect')?.value;
-  if(biasAsset && biasAsset !== 'XAUUSD' && biasAsset !== 'XAGUSD') { const bp = ALL_PAIRS.find(p => p.id === biasAsset); if(bp) pairs.push({ id: bp.id, sym: bp.sym, yahoo: bp.yahoo, color: bp.color }); }
+  if(biasAsset && biasAsset !== 'GC' && biasAsset !== 'SI') { const bp = ALL_PAIRS.find(p => p.id === biasAsset); if(bp) pairs.push({ id: bp.id, sym: bp.sym, yahoo: bp.yahoo, color: bp.color }); }
   const results = [];
   for(const p of pairs) { const r = await computeSentimentForPair(p.id, p.yahoo, p.color); if(r) { r.sym = p.sym; results.push(r); } }
   if(!results.length) { module.innerHTML = '<div style="text-align:center;padding:12px;font-size:10px;color:var(--text3);">⚠️ Sentiment indisponible</div>'; return; }
@@ -2348,7 +2594,7 @@ async function computeAllSentiment() {
 function getAIBiasAnalysis() {
   if(!API_KEY) { openModal(); return; }
   const d = biasData.d, h1 = biasData.h1, w = biasData.w;
-  const price = pairPrices['XAUUSD']?.price?.toFixed(2) || '--';
+  const price = pairPrices['GC']?.price?.toFixed(2) || '--';
   const dxy = pairPrices['DXY']?.price?.toFixed(3) || '--';
   const proScore = window._biasProScore !== undefined ? Math.round((window._biasProScore+1)/2*100)+'%' : '--';
   const data = 'XAU/USD: ' + price + ' | DXY: ' + dxy + '\nBiais Weekly: ' + (w?w.bias:'--') + ' | Daily: ' + (d?d.bias:'--') + ' | H1: ' + (h1?h1.bias:'--') + '\nEMA200 Daily: ' + (d?.above?'AU-DESSUS':'EN-DESSOUS') + ' | EMA200 H1: ' + (h1?.above?'AU-DESSUS':'EN-DESSOUS') + '\nStructure D: HH=' + (d?.hh?'Oui':'Non') + ' HL=' + (d?.hl?'Oui':'Non') + '\nScore Pro: ' + proScore;
@@ -2377,7 +2623,7 @@ function calcFibonacci(highs, lows, closes) {
   levels.forEach((lvl, idx) => {
     let price = uptrend ? swingHigh - (range * lvl) : swingLow + (range * lvl);
     const el = document.getElementById(ids[idx]);
-    if(el) { el.textContent = price.toFixed(2); const cp = pairPrices['XAUUSD']?.price; if(cp && Math.abs(cp - price) / cp < 0.01) { el.style.color = 'var(--gold)'; el.style.fontWeight = '900'; el.parentElement.style.background = 'rgba(240,180,41,0.08)'; el.parentElement.style.borderLeftColor = 'var(--gold)'; } else { el.style.fontWeight = ''; el.parentElement.style.background = ''; } }
+    if(el) { el.textContent = price.toFixed(2); const cp = pairPrices['GC']?.price; if(cp && Math.abs(cp - price) / cp < 0.01) { el.style.color = 'var(--gold)'; el.style.fontWeight = '900'; el.parentElement.style.background = 'rgba(240,180,41,0.08)'; el.parentElement.style.borderLeftColor = 'var(--gold)'; } else { el.style.fontWeight = ''; el.parentElement.style.background = ''; } }
   });
   const ctx = document.getElementById('fibContext');
   if(ctx) { ctx.innerHTML = (uptrend ? '↑' : '↓') + ' Swing H: ' + swingHigh.toFixed(0) + ' / L: ' + swingLow.toFixed(0) + ' (' + len + 'j Daily)<br><span style="color:var(--purple,#a78bfa);">' + (uptrend ? 'Retracement baissier depuis le sommet' : 'Retracement haussier depuis le creux') + '</span>'; }
@@ -2425,21 +2671,21 @@ async function loadTIPS() {
 // ALERTES DE PRIX
 // ═══════════════════════════════════════════
 let priceAlerts = JSON.parse(localStorage.getItem('xaumitri49_alerts') || '[]');
-priceAlerts = priceAlerts.map(a => { if(!a.pair) a.pair = 'XAUUSD'; return a; });
+priceAlerts = priceAlerts.map(a => { if(!a.pair) a.pair = 'GC'; return a; });
 localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
-const PAIR_LABELS = { XAUUSD:'XAU/USD', XAGUSD:'XAG/USD', DXY:'DXY', SPX500:'SPX500' };
+const PAIR_LABELS = {}; ALL_PAIRS.forEach(p => PAIR_LABELS[p.id] = p.sym);
 const PAIR_COLORS = { XAUUSD:'var(--gold)', XAGUSD:'var(--silver)', DXY:'var(--blue)', SPX500:'#34d399' };
 
 function renderAlerts() {
   const l = document.getElementById('alertsList'); if(!l) return;
   if(!priceAlerts.length) { l.innerHTML = '<div style="font-size:9px;color:var(--text3);text-align:center;padding:4px;">Aucune alerte</div>'; return; }
   l.innerHTML = priceAlerts.map(function(a, i) {
-    const trig = a.triggered; const pair = a.pair || 'XAUUSD';
+    const trig = a.triggered; const pair = a.pair || 'GC';
     const dirTxt = a.dir === 'above' ? '≥' : '≤';
     const pairLabel = PAIR_LABELS[pair] || pair; const pairColor = PAIR_COLORS[pair] || 'var(--text1)';
     const bg = trig ? 'rgba(16,217,106,0.1);border:1px solid rgba(16,217,106,0.3)' : 'var(--bg3);border:1px solid var(--border)';
     const statusTxt = trig ? ' <span style="font-size:7px;color:var(--green);font-weight:700;">TOUCHE</span>' : '';
-    const cp = pairPrices[pair]?.price; const dec = pair === 'XAGUSD' ? 3 : pair === 'DXY' ? 3 : 2;
+    const cp = pairPrices[pair]?.price; const dec = ALL_PAIRS.find(p=>p.id===pair)?.decimals || 2;
     const dist = cp ? Math.abs(cp - a.price).toFixed(dec) : '?';
     const distTxt = trig ? '' : ' <span style="font-size:8px;color:rgba(255,255,255,0.5);">(' + dist + ' pts)</span>';
     return '<div style="display:flex;align-items:center;gap:5px;padding:4px 6px;border-radius:4px;margin-bottom:3px;' + bg + ';" id="alert-' + i + '"><span style="font-size:8px;font-weight:700;color:' + pairColor + ';min-width:48px;">' + pairLabel + '</span><span style="font-size:10px;font-weight:700;font-family:JetBrains Mono,monospace;color:var(--text1);' + (trig ? 'text-decoration:line-through;opacity:0.5;' : '') + '">' + a.price.toFixed(dec) + '</span><span style="font-size:9px;color:' + (a.dir === 'above' ? 'var(--green)' : 'var(--red)') + ';">' + dirTxt + '</span>' + statusTxt + distTxt + '<span style="margin-left:auto;cursor:pointer;color:var(--text3);font-size:12px;" onclick="removePriceAlert(' + i + ')">&times;</span></div>';
@@ -2449,7 +2695,7 @@ function renderAlerts() {
 function addPriceAlert() {
   const inp = document.getElementById('alertPriceInput'); const pairSel = document.getElementById('alertPairSelect');
   const p = parseFloat(inp.value); if(!p || p <= 0) return;
-  const pair = pairSel ? pairSel.value : 'XAUUSD'; const cp = pairPrices[pair]?.price || 0;
+  const pair = pairSel ? pairSel.value : 'GC'; const cp = pairPrices[pair]?.price || 0;
   priceAlerts.push({ pair, price: p, dir: p > cp ? 'above' : 'below', triggered: false });
   localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
   inp.value = ''; renderAlerts();
@@ -2465,7 +2711,7 @@ function playAlertSound() {
 function checkPriceAlerts() {
   let anyTriggered = false; let triggeredNames = [];
   priceAlerts.forEach(function(a) {
-    if(a.triggered) return; const pair = a.pair || 'XAUUSD'; const cp = pairPrices[pair]?.price; if(!cp) return;
+    if(a.triggered) return; const pair = a.pair || 'GC'; const cp = pairPrices[pair]?.price; if(!cp) return;
     const hit = (a.dir === 'above' && cp >= a.price) || (a.dir === 'below' && cp <= a.price);
     if(hit) { a.triggered = true; anyTriggered = true; triggeredNames.push((PAIR_LABELS[pair] || pair) + ' @ ' + a.price.toFixed(2)); }
   });
@@ -2500,8 +2746,38 @@ checkCachedBriefing();
 checkIdealZone();
 renderAlerts();
 
-setInterval(loadPrices, 45000);  // Prix toutes les 45s
-setInterval(checkPriceAlerts, 20000);
+// Mobile: intervalles plus longs pour éviter le lag
+const _isMobile = window.innerWidth <= 640;
+setInterval(loadPrices, _isMobile ? 90000 : 45000);  // Prix: 90s mobile, 45s desktop
+setInterval(checkPriceAlerts, _isMobile ? 30000 : 20000);
+
+// Vérifier session pour bouton pré-session
+function checkPreSession() {
+  const btn = document.getElementById('preSessionBtn');
+  if(!btn) return;
+  const now = new Date();
+  const h = now.getUTCHours() + now.getUTCMinutes() / 60;
+  const nySess = getNYSessionUTC();
+  
+  // London: 1h30 avant ouverture (08:00 UTC) jusqu'à 30min après
+  // NY: 1h30 avant ouverture jusqu'à 30min après
+  const londonPre = h >= 6.5 && h <= 8.5;
+  const nyPre = h >= (nySess.start - 1.5) && h <= (nySess.start + 0.5);
+  
+  if(londonPre) {
+    btn.style.display = 'inline-flex';
+    btn.textContent = '🇬🇧 Pré-London';
+    btn.onclick = () => generateBriefing('pre-london');
+  } else if(nyPre) {
+    btn.style.display = 'inline-flex';
+    btn.textContent = '🇺🇸 Pré-New York';
+    btn.onclick = () => generateBriefing('pre-ny');
+  } else {
+    btn.style.display = 'none';
+  }
+}
+setInterval(checkPreSession, 60000);
+checkPreSession();
 </script>
 </body>
 </html>
