@@ -635,6 +635,9 @@ body::before{
 .ratio-pill{font-size:10px !important;}
 #fibContext{color:rgba(255,255,255,0.6) !important;font-size:9px !important;}
 .al-price{font-size:11px !important;}
+
+/* ═══ API KEY STATUS INDICATOR ═══ */
+.api-key-btn.has-key{background:rgba(16,217,106,0.12);color:var(--green);border-color:rgba(16,217,106,0.25);}
 </style>
 </head>
 <body>
@@ -651,7 +654,8 @@ body::before{
     </div>
     <div class="modal-hint">
       Pas encore de clé ? → <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a><br>
-      Ta clé est stockée localement — jamais envoyée ailleurs.
+      Ta clé est stockée localement (localStorage + cookie) — jamais envoyée ailleurs.<br>
+      <span style="color:var(--green);" id="storageStatus"></span>
     </div>
   </div>
 </div>
@@ -682,7 +686,7 @@ body::before{
   <div class="topbar-right">
     <div class="live-dot"></div>
     <div class="utc-clock" id="clock">—</div>
-    <button class="api-key-btn" onclick="openModal()">🔑 IA</button>
+    <button class="api-key-btn" id="apiKeyTopBtn" onclick="openModal()">🔑 IA</button>
   </div>
 </div>
 
@@ -1025,6 +1029,78 @@ body::before{
 </nav>
 
 <script>
+// ═══════════════════════════════════════════════════════
+// 🔧 FIX MOBILE: STOCKAGE ROBUSTE (localStorage + Cookie + sessionStorage)
+// Résout le problème de perte de clé API sur Safari iOS,
+// Chrome mobile en navigation privée, PWA, etc.
+// ═══════════════════════════════════════════════════════
+function robustSet(key, value) {
+  // 1. localStorage (principal)
+  try { localStorage.setItem(key, value); } catch(e) { console.warn('[XM49 Storage] localStorage.set failed:', e); }
+  // 2. Cookie longue durée (365j) — survit aux nettoyages localStorage sur mobile
+  try {
+    const d = new Date();
+    d.setTime(d.getTime() + 365 * 24 * 60 * 60 * 1000);
+    // SameSite=Lax + path=/ pour compatibilité maximale
+    document.cookie = encodeURIComponent(key) + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+  } catch(e) { console.warn('[XM49 Storage] cookie.set failed:', e); }
+  // 3. sessionStorage (backup intra-session)
+  try { sessionStorage.setItem(key, value); } catch(e) {}
+}
+
+function robustGet(key) {
+  let value = null;
+  // 1. Essayer localStorage
+  try { value = localStorage.getItem(key); } catch(e) {}
+  if(value) return value;
+  // 2. Essayer Cookie (fallback principal sur mobile)
+  try {
+    const name = encodeURIComponent(key) + '=';
+    const parts = document.cookie.split(';');
+    for(let i = 0; i < parts.length; i++) {
+      let c = parts[i].trim();
+      if(c.indexOf(name) === 0) {
+        value = decodeURIComponent(c.substring(name.length));
+        // Re-synchroniser vers localStorage si récupéré depuis cookie
+        try { localStorage.setItem(key, value); } catch(e) {}
+        console.log('[XM49 Storage] Clé récupérée depuis cookie pour:', key);
+        return value;
+      }
+    }
+  } catch(e) {}
+  // 3. Essayer sessionStorage
+  try { value = sessionStorage.getItem(key); } catch(e) {}
+  if(value) {
+    // Re-sync
+    try { localStorage.setItem(key, value); } catch(e) {}
+    console.log('[XM49 Storage] Clé récupérée depuis sessionStorage pour:', key);
+  }
+  return value;
+}
+
+function robustRemove(key) {
+  try { localStorage.removeItem(key); } catch(e) {}
+  try { document.cookie = encodeURIComponent(key) + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;SameSite=Lax'; } catch(e) {}
+  try { sessionStorage.removeItem(key); } catch(e) {}
+}
+
+// Diagnostic: afficher l'état du stockage dans la console
+function diagStorage() {
+  const ls = (() => { try { localStorage.setItem('_test','1'); localStorage.removeItem('_test'); return true; } catch(e) { return false; } })();
+  const ss = (() => { try { sessionStorage.setItem('_test','1'); sessionStorage.removeItem('_test'); return true; } catch(e) { return false; } })();
+  const ck = navigator.cookieEnabled;
+  console.log('[XM49 Storage] localStorage:', ls ? '✅' : '❌', '| sessionStorage:', ss ? '✅' : '❌', '| cookies:', ck ? '✅' : '❌');
+  const status = document.getElementById('storageStatus');
+  if(status) {
+    const methods = [];
+    if(ls) methods.push('localStorage');
+    if(ck) methods.push('cookies');
+    if(ss) methods.push('sessionStorage');
+    status.textContent = '✅ Stockage: ' + methods.join(' + ');
+  }
+  return { localStorage: ls, sessionStorage: ss, cookies: ck };
+}
+
 // ═══════════════════════════════════════════
 // PAIRES CONFIG
 // ═══════════════════════════════════════════
@@ -1049,7 +1125,6 @@ function toggleFav(id) {
   } else {
     if(favorites.length < 5) favorites.push(id);
     else {
-      // Replace oldest non-current
       favorites.shift();
       favorites.push(id);
     }
@@ -1064,7 +1139,6 @@ function renderPriceBar() {
   const btn = document.getElementById('morePairsBtn');
   bar.innerHTML = '';
 
-  // Favorites first
   favorites.forEach(id => {
     const p = ALL_PAIRS.find(x => x.id === id);
     if(!p) return;
@@ -1072,7 +1146,6 @@ function renderPriceBar() {
     bar.appendChild(createPricePill(p, price, true));
   });
 
-  // Hidden pairs toggle
   const otherPairs = ALL_PAIRS.filter(p => !favorites.includes(p.id));
   if(otherPairs.length) {
     const moreDiv = document.createElement('div');
@@ -1084,11 +1157,9 @@ function renderPriceBar() {
       pill.dataset.hidden = 'true';
       bar.appendChild(pill);
     });
-    bar.appendChild(document.createElement('div')); // spacer handled by morePairsBtn
+    bar.appendChild(document.createElement('div'));
   }
 
-
-  // Gold/Silver Ratio
   const goldP = pairPrices['XAUUSD']?.price;
   const silverP = pairPrices['XAGUSD']?.price;
   if(goldP && silverP && silverP > 0) {
@@ -1107,14 +1178,13 @@ function renderPriceBar() {
     window._gsRatio = ratio;
   }
 
-  // TIPS / Taux reels
   if(window._tipsData) {
     const td = window._tipsData;
     const tipDiv = document.createElement('div');
     tipDiv.className = 'ratio-pill';
     let tipSignal = '', tipCls = 'neutral';
-    if(td.chg > 0.1) { tipSignal = 'TAUX \u2193 GOLD \u2191'; tipCls = 'buy-gold'; }
-    else if(td.chg < -0.1) { tipSignal = 'TAUX \u2191 GOLD \u2193'; tipCls = 'buy-silver'; }
+    if(td.chg > 0.1) { tipSignal = 'TAUX ↓ GOLD ↑'; tipCls = 'buy-gold'; }
+    else if(td.chg < -0.1) { tipSignal = 'TAUX ↑ GOLD ↓'; tipCls = 'buy-silver'; }
     else { tipSignal = 'STABLE'; tipCls = 'neutral'; }
     tipDiv.innerHTML = '<span class="ratio-label">TIPS</span><span class="ratio-val" style="color:var(--blue);">' + td.price.toFixed(2) + '</span><span class="ratio-signal ' + tipCls + '">' + tipSignal + '</span>';
     bar.appendChild(tipDiv);
@@ -1191,7 +1261,6 @@ function mobileNav(col, btn) {
   btn.classList.add('active');
 }
 
-// Initialize mobile nav
 if(window.innerWidth <= 640) {
   document.querySelectorAll('.col-left,.col-center,.col-right').forEach(c => c.style.flexDirection='column');
   document.querySelector('.col-left').classList.add('active');
@@ -1209,11 +1278,15 @@ function switchLotTab(tab, btn) {
 }
 
 // ═══════════════════════════════════════════
-// STATE
+// STATE — 🔧 FIX: utilise robustGet/robustSet pour la clé API
 // ═══════════════════════════════════════════
-let API_KEY = localStorage.getItem('xaumitri49_apikey') || '';
+let API_KEY = robustGet('xaumitri49_apikey') || '';
 // Nettoyer les valeurs invalides stockées
-if(!API_KEY.startsWith('sk-ant-')) { API_KEY = ''; localStorage.removeItem('xaumitri49_apikey'); }
+if(API_KEY && !API_KEY.startsWith('sk-ant-')) {
+  API_KEY = '';
+  robustRemove('xaumitri49_apikey');
+}
+
 async function callClaude(prompt, outputId, btnId, btnLabel) {
   if(!API_KEY || API_KEY === 'server-side') { openModal(); return; }
   const btn = document.getElementById(btnId);
@@ -1224,7 +1297,12 @@ async function callClaude(prompt, outputId, btnId, btnLabel) {
     if(out) out.textContent = text;
   } catch(e) {
     if(out) out.textContent = 'Erreur: ' + e.message;
-    if(e.message.includes('401')) { API_KEY = ''; localStorage.removeItem('xaumitri49_apikey'); openModal(); }
+    if(e.message.includes('401')) {
+      API_KEY = '';
+      robustRemove('xaumitri49_apikey');
+      updateApiKeyUI();
+      openModal();
+    }
   }
   if(btn) { btn.disabled = false; btn.textContent = btnLabel; }
 }
@@ -1266,21 +1344,35 @@ let biasData = { h1: null, d: null, w: null };
 let currentNewsFilter = 'all';
 
 // ═══════════════════════════════════════════
-// API KEY MODAL
+// API KEY MODAL — 🔧 FIX: utilise robustSet/robustGet
 // ═══════════════════════════════════════════
+function updateApiKeyUI() {
+  const topBtn = document.getElementById('apiKeyTopBtn');
+  if(topBtn) {
+    if(API_KEY && API_KEY.startsWith('sk-ant-')) {
+      topBtn.classList.add('has-key');
+      topBtn.textContent = '✅ IA';
+    } else {
+      topBtn.classList.remove('has-key');
+      topBtn.textContent = '🔑 IA';
+    }
+  }
+}
+
 function openModal() {
+  diagStorage(); // Diagnostic au moment de l'ouverture
   document.getElementById('apiModal').classList.add('show');
   const inp = document.getElementById('apiKeyInput');
   if(inp && API_KEY && API_KEY.startsWith('sk-ant-')) inp.value = API_KEY;
 }
 function closeModal() { document.getElementById('apiModal').classList.remove('show'); }
+
 function saveApiKey() {
   const key = document.getElementById('apiKeyInput').value.trim();
   if(!key.startsWith('sk-ant-')) {
     alert('❌ Clé invalide. Elle doit commencer par sk-ant-');
     return;
   }
-  // Test the key immediately
   const testBtn = document.querySelector('.modal-btn.confirm');
   if(testBtn) testBtn.textContent = '⏳ Test en cours...';
   fetch('https://api.anthropic.com/v1/messages', {
@@ -1299,9 +1391,17 @@ function saveApiKey() {
   }).then(r => {
     if(r.ok) {
       API_KEY = key;
-      localStorage.setItem('xaumitri49_apikey', key);
+      // 🔧 FIX: Sauvegarde dans TOUS les stockages (localStorage + cookie + sessionStorage)
+      robustSet('xaumitri49_apikey', key);
+      updateApiKeyUI();
       closeModal();
-      alert('✅ Clé API vérifiée et activée !');
+      // Vérifier que la clé a bien été sauvegardée
+      const verify = robustGet('xaumitri49_apikey');
+      if(verify === key) {
+        alert('✅ Clé API vérifiée et sauvegardée !\n\n📱 Stockage multi-couches activé (localStorage + cookie).\nTa clé sera retrouvée même si le navigateur vide le localStorage.');
+      } else {
+        alert('✅ Clé API activée pour cette session.\n⚠️ Le stockage permanent semble limité sur ce navigateur.\nSi tu perds la clé, reviens la saisir ici.');
+      }
       const t1 = document.getElementById('aiAnalysisText'); if(t1) t1.textContent = '🔑 Clé API active. Clique pour analyser.';
       const t2 = document.getElementById('aiSentimentText'); if(t2) t2.textContent = '🔑 Clé API active. Clique pour analyser.';
     } else {
@@ -1333,9 +1433,7 @@ function updateSessions(now) {
   updateSessionsSimple();
 }
 
-function updateKillzones(now) {
-  // Intégré dans les sessions simplifiées
-}
+function updateKillzones(now) {}
 
 // ═══════════════════════════════════════════
 // SESSIONS SIMPLIFIÉES
@@ -1359,12 +1457,10 @@ function updateSessionsSimple() {
   const now = new Date();
   const h = now.getUTCHours() + now.getUTCMinutes() / 60;
 
-  // Heure locale
   const ld = new Date(now.getTime() + utcOffset * 3600000);
   const ltEl = document.getElementById('localTimeDisplay');
   if(ltEl) ltEl.textContent = String(ld.getUTCHours()).padStart(2,'0') + ':' + String(ld.getUTCMinutes()).padStart(2,'0');
 
-  // Heures locales
   const ah = document.getElementById('asiaHoursLocal'); if(ah) ah.textContent = utcToLocal(23) + ' – ' + utcToLocal(8);
   const lh = document.getElementById('londonHoursLocal'); if(lh) lh.textContent = utcToLocal(8) + ' – ' + utcToLocal(17);
   const nh = document.getElementById('nyHoursLocal'); if(nh) nh.textContent = utcToLocal(13) + ' – ' + utcToLocal(22);
@@ -1407,7 +1503,6 @@ function updateSessionsSimple() {
   if(needle) needle.style.left = (h / 24 * 100) + '%';
 }
 
-// Init UTC offset select
 (function(){
   const sel = document.getElementById('utcOffsetSelect');
   const saved = localStorage.getItem('xaumitri49_utc_offset');
@@ -1415,7 +1510,7 @@ function updateSessionsSimple() {
 })();
 
 // ═══════════════════════════════════════════
-// PAIR DATA PANEL (clic sur favoris)
+// PAIR DATA PANEL
 // ═══════════════════════════════════════════
 let activePairPanel = null;
 
@@ -1510,7 +1605,6 @@ async function changeBiasAsset(id) {
       }
     }
     
-    // Afficher résultats
     const tfMap = {h1:'tfH1Val', d:'tfDVal', w:'tfWVal'};
     ['h1','d','w'].forEach(tf => {
       const el = document.getElementById(tfMap[tf]);
@@ -1521,7 +1615,6 @@ async function changeBiasAsset(id) {
                         val.includes('BAISSIER') && !val.includes('LÉGÈREMENT') ? 'var(--red)' : 'var(--orange)';
     });
     
-    // Confluence
     const vals = [results.h1, results.d, results.w].filter(x=>x);
     const bullCount = vals.filter(v => v && v.includes('HAUSSIER')).length;
     const bearCount = vals.filter(v => v && v.includes('BAISSIER')).length;
@@ -1545,9 +1638,7 @@ async function fetchYahoo(symbol, range='5d', interval='1d') {
     return JSON.parse(d.contents).chart.result[0];
   } catch(e){ return null; }
 }
-// ═══════════════════════════════════════
-// API CACHE (5 min)
-// ═══════════════════════════════════════
+
 const _apiCache = {};
 const CACHE_TTL = 2 * 60 * 1000;
 async function fetchYahooCached(sym, range, interval) {
@@ -1562,7 +1653,6 @@ async function fetchYahooCached(sym, range, interval) {
 function fmt(v,d=2){ return v!=null ? parseFloat(v).toFixed(d) : '—'; }
 
 async function loadPrices() {
-  // Load all pairs + weekly data IN PARALLEL (no duplicates!)
   const pairDataMap = {};
   const [gw] = await Promise.all([
     fetchYahooCached('GC=F','4wk','1wk'),
@@ -1583,7 +1673,6 @@ async function loadPrices() {
   ]);
   renderPriceBar();
 
-  // Reuse gold data (NO extra API call!)
   const gd = pairDataMap['XAUUSD'];
   if(gd) {
     goldData = gd;
@@ -1604,7 +1693,6 @@ async function loadPrices() {
       document.getElementById('lvlWL').textContent = fmt(wl[wl.length-1]);
     }
     updateATR(gd, 2);
-    // Fibonacci needs more data - fetch longer period
     try {
       const fibData = await fetchYahooCached('GC=F', '60d', '1d');
       if(fibData) {
@@ -1615,7 +1703,6 @@ async function loadPrices() {
     checkPriceAlerts();
   }
   document.getElementById('biasTime').textContent = new Date().toLocaleTimeString('fr-FR',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC';
-  // Launch bias + sentiment + volumes + TIPS in parallel
   Promise.all([
     computeBias(),
     computeBiasProV2(),
@@ -1628,22 +1715,13 @@ async function loadPrices() {
 function updateMacroRiskScore() {
   let score = 50;
   const vixVal = pairPrices['VIX']?.price || 18;
-  if(vixVal > 25) score += 20;
-  else if(vixVal > 18) score += 8;
-  else score -= 10;
-
+  if(vixVal > 25) score += 20; else if(vixVal > 18) score += 8; else score -= 10;
   const dxyData = pairPrices['DXY'];
-  if(dxyData && dxyData.chg > 0) score += 10;
-  else if(dxyData && dxyData.chg < 0) score -= 10;
-
+  if(dxyData && dxyData.chg > 0) score += 10; else if(dxyData && dxyData.chg < 0) score -= 10;
   const spxData = pairPrices['SPX500'];
-  if(spxData && spxData.chg < 0) score += 12;
-  else if(spxData && spxData.chg > 0) score -= 8;
-
+  if(spxData && spxData.chg < 0) score += 12; else if(spxData && spxData.chg > 0) score -= 8;
   score = Math.max(5, Math.min(95, score));
-  const needle = document.getElementById('riskNeedle');
-  if(needle) needle.style.left = score + '%';
-
+  const needle = document.getElementById('riskNeedle'); if(needle) needle.style.left = score + '%';
   const label = document.getElementById('riskLabel');
   const sub = document.getElementById('riskSub');
   if(label) {
@@ -1671,49 +1749,37 @@ async function computeBias() {
       fetchYahooCached('GC=F','300d','1d'),
       fetchYahooCached('GC=F','60d','1h'),
     ]);
-
     const results = {};
-
     if(d300) {
       const c=d300.indicators.quote[0].close.filter(x=>x);
       const h=d300.indicators.quote[0].high.filter(x=>x);
       const l=d300.indicators.quote[0].low.filter(x=>x);
-      const ema=calcEMA(c,200);
-      const n=c.length;
-      const above=c[n-1]>ema;
-      const hh=h[n-1]>h[n-2];
-      const hl=l[n-1]>l[n-2];
+      const ema=calcEMA(c,200); const n=c.length;
+      const above=c[n-1]>ema; const hh=h[n-1]>h[n-2]; const hl=l[n-1]>l[n-2];
       const bull=above&&hh&&hl, bear=!above&&!hh&&!hl;
       results.d = { bias: bull?'bull':bear?'bear':above?'sl-bull':'sl-bear', above, hh, hl, ema };
       biasData.d = results.d;
-
       const wClose=c[n-1];
       const wHigh=Math.max(...h.slice(-5)), wPrevHigh=Math.max(...h.slice(-10,-5));
       const wLow=Math.min(...l.slice(-5)), wPrevLow=Math.min(...l.slice(-10,-5));
-      const ema50w=calcEMA(c,50);
-      const wAbove=wClose>ema50w;
+      const ema50w=calcEMA(c,50); const wAbove=wClose>ema50w;
       const whh=wHigh>wPrevHigh, whl=wLow>wPrevLow;
       const wbull=wAbove&&whh&&whl, wbear=!wAbove&&!whh&&!whl;
       results.w = { bias: wbull?'bull':wbear?'bear':wAbove?'sl-bull':'sl-bear', above:wAbove, hh:whh, hl:whl };
       biasData.w = results.w;
     }
-
     if(h1d) {
       const c=h1d.indicators.quote[0].close.filter(x=>x);
       const h=h1d.indicators.quote[0].high.filter(x=>x);
       const l=h1d.indicators.quote[0].low.filter(x=>x);
       if(c.length>=50) {
-        const ema=calcEMA(c,Math.min(200,c.length));
-        const n=c.length;
-        const above=c[n-1]>ema;
-        const hh=h[n-1]>h[n-2];
-        const hl=l[n-1]>l[n-2];
+        const ema=calcEMA(c,Math.min(200,c.length)); const n=c.length;
+        const above=c[n-1]>ema; const hh=h[n-1]>h[n-2]; const hl=l[n-1]>l[n-2];
         const bull=above&&hh&&hl, bear=!above&&!hh&&!hl;
         results.h1 = { bias: bull?'bull':bear?'bear':above?'sl-bull':'sl-bear', above, hh, hl };
         biasData.h1 = results.h1;
       }
     }
-
     renderBiasCards(results);
   } catch(e) {
     document.getElementById('confluenceBar').textContent = '⚠️ Erreur calcul biais';
@@ -1731,8 +1797,7 @@ function biasLabel(b) {
 function renderBiasCards(r) {
   const tfs = [{key:'h1',id:'tfH1',label:'1H'},{key:'d',id:'tfD',label:'1D'},{key:'w',id:'tfW',label:'1W'}];
   tfs.forEach(tf => {
-    const data = r[tf.key];
-    if(!data) return;
+    const data = r[tf.key]; if(!data) return;
     const bl = biasLabel(data.bias);
     const card = document.getElementById(tf.id+'Card');
     const val = document.getElementById(tf.id+'Val');
@@ -1742,7 +1807,6 @@ function renderBiasCards(r) {
     val.textContent = bl.text;
     sub.textContent = (data.above?'↑ >EMA200':'↓ <EMA200')+' · '+(data.hh&&data.hl?'HH+HL':!data.hh&&!data.hl?'LH+LL':'Mixte');
   });
-
   const biases = ['h1','d','w'].map(k=>r[k]?.bias||'').filter(x=>x);
   const bullCount = biases.filter(b=>b.includes('bull')).length;
   const bearCount = biases.filter(b=>b.includes('bear')).length;
@@ -1750,7 +1814,6 @@ function renderBiasCards(r) {
   if(bullCount===3) { bar.className='bias-confluence full-bull'; bar.textContent='✅ FULL BULLISH — Confluence 1H + Daily + Weekly'; }
   else if(bearCount===3) { bar.className='bias-confluence full-bear'; bar.textContent='✅ FULL BEARISH — Confluence 1H + Daily + Weekly'; }
   else { bar.className='bias-confluence mixed'; bar.textContent=`⚠️ MIXTE — ${bullCount}/3 TF Haussiers · ${bearCount}/3 Baissiers`; }
-
   const dData = r.d;
   if(dData) {
     const factors = [
@@ -1760,13 +1823,8 @@ function renderBiasCards(r) {
       { name:'Tendance Weekly', pct: r.w?.above?70:30, dir: r.w?.above?'bull':'bear' },
     ];
     document.getElementById('kfItems').innerHTML = factors.map(f=>
-      `<div class="kf-item">
-        <span class="kf-name">${f.name}</span>
-        <div class="kf-bar-wrap"><div class="kf-bar ${f.dir}" style="width:${f.pct}%"></div></div>
-        <span class="kf-pct">${f.pct}%</span>
-      </div>`
+      `<div class="kf-item"><span class="kf-name">${f.name}</span><div class="kf-bar-wrap"><div class="kf-bar ${f.dir}" style="width:${f.pct}%"></div></div><span class="kf-pct">${f.pct}%</span></div>`
     ).join('');
-
     const isOverallBull = bullCount >= bearCount;
     const supports = [], flips = [];
     if(dData.above) supports.push({txt:'Prix > EMA200 Daily — structure haussière LT',cls:'bull'});
@@ -1775,7 +1833,6 @@ function renderBiasCards(r) {
     else if(!dData.hh&&!dData.hl) supports.push({txt:'Lower Highs + Lower Lows en Daily',cls:'bear'});
     if(r.h1?.above) supports.push({txt:'H1 au-dessus EMA200 — momentum haussier CT',cls:'bull'});
     else supports.push({txt:'H1 sous EMA200 — momentum baissier CT',cls:'bear'});
-
     if(isOverallBull) {
       flips.push({txt:'Clôture Daily sous EMA200 retournerait le biais',cls:'warn'});
       flips.push({txt:'NFP/CPI plus fort que prévu → USD fort → Gold baissier',cls:'warn'});
@@ -1783,205 +1840,14 @@ function renderBiasCards(r) {
       flips.push({txt:'Clôture Daily au-dessus EMA200 + HH retournerait',cls:'warn'});
       flips.push({txt:'USD faible ou données décevantes → Gold haussier',cls:'warn'});
     }
-
     document.getElementById('supportsItems').innerHTML = supports.slice(0,3).map(s=>`<div class="support-item ${s.cls}">${s.txt}</div>`).join('');
     document.getElementById('flipItems').innerHTML = flips.slice(0,3).map(f=>`<div class="support-item ${f.cls}">${f.txt}</div>`).join('');
   }
 }
 
 // ═══════════════════════════════════════════
-
 // BRIEFING DU JOUR
 // ═══════════════════════════════════════════
-async function generateBriefing() {
-  if(!API_KEY) { openModal(); return; }
-  const today = new Date().toISOString().slice(0,10);
-  const cached = localStorage.getItem('xaumitri49_briefing_date');
-  if(cached === today) {
-    const savedText = localStorage.getItem('xaumitri49_briefing_text');
-    const savedVerdict = localStorage.getItem('xaumitri49_briefing_verdict');
-    const savedBias = localStorage.getItem('xaumitri49_briefing_bias');
-    if(savedText) { showBriefingResult(savedText, savedVerdict, savedBias ? JSON.parse(savedBias) : null, today, true); return; }
-  }
-
-  document.getElementById('briefingIdle').style.display = 'none';
-  document.getElementById('briefingResult').style.display = 'none';
-  document.getElementById('briefingLoading').style.display = 'block';
-
-  const goldPrice = pairPrices['XAUUSD']?.price?.toFixed(2) || '—';
-  const dxy = pairPrices['DXY']?.price?.toFixed(3) || '—';
-  const hod = document.getElementById('lvlHod').textContent;
-  const lod = document.getElementById('lvlLod').textContent;
-  const openD = document.getElementById('lvlOpen').textContent;
-  const dBias = biasData.d ? biasData.d.bias : 'inconnu';
-  const h1Bias = biasData.h1 ? biasData.h1.bias : 'inconnu';
-  const wBias = biasData.w ? biasData.w.bias : 'inconnu';
-  const dAbove = biasData.d ? biasData.d.above : false;
-  const h1Above = biasData.h1 ? biasData.h1.above : false;
-
-  const todayStr = today;
-  const todayEvents = newsData.filter(e => e.date === todayStr);
-  const weekEvents = newsData.filter(e => e.date >= todayStr).slice(0,5);
-  const eventsToday = todayEvents.length ? todayEvents.map(e => `${e.time} UTC — ${e.title} (Prév: ${e.forecast||'—'})`).join('\n') : "Aucune annonce USD haute importance aujourd'hui";
-  const eventsWeek = weekEvents.map(e => `${e.date} ${e.time} — ${e.title}`).join('\n');
-  const cotSent = document.getElementById('cotGoldSent')?.textContent || '—';
-  const riskLabel = document.getElementById('riskLabel')?.textContent || '—';
-
-  const prompt = `Tu es l'assistant trading personnel de XauMitri49, trader Gold/Silver.
-Génère un briefing du jour COMPLET en français. Sois direct, actionnable.
-
-=== MARCHÉ ===
-Date: ${today} | XAU/USD: ${goldPrice} | DXY: ${dxy}
-
-=== BIAIS ===
-Weekly: ${wBias} | Daily: ${dBias} | H1: ${h1Bias}
-EMA200 Daily: ${dAbove ? 'AU-DESSUS' : 'EN-DESSOUS'} | EMA200 H1: ${h1Above ? 'AU-DESSUS' : 'EN-DESSOUS'}
-
-=== NIVEAUX ===
-HOD: ${hod} | LOD: ${lod} | Open Daily: ${openD}
-
-=== ANNONCES AUJOURD'HUI ===
-${eventsToday}
-
-=== SEMAINE ===
-${eventsWeek}
-
-=== COT GOLD ===
-${cotSent}
-
-=== MACRO ===
-Risk: ${riskLabel}
-
-FORMAT REQUIS:
-📊 BIAIS SWING (Daily/Weekly)
-[1 phrase]
-
-⚡ BIAIS DAY TRADING (H1)
-[1 phrase]
-
-📅 ANNONCES DU JOUR
-[si annonces: nom + heure + playbook. sinon: "Zone libre"]
-
-📈 SIGNAL COT
-[1 phrase]
-
-🌡️ RISK-ON/OFF
-[1 phrase]
-
-📍 NIVEAUX À SURVEILLER
-[3 niveaux max]
-
-✅ VERDICT DU JOUR
-[1 ligne: TRADE LONG / TRADE SHORT / WAIT + condition]`;
-
-  try {
-    const text = await claudeAPI(prompt, 800);
-    const verdictMatch = text.match(/✅ VERDICT DU JOUR\n(.+)/);
-    const verdict = verdictMatch ? verdictMatch[1].trim() : '';
-    localStorage.setItem('xaumitri49_briefing_date', today);
-    localStorage.setItem('xaumitri49_briefing_text', text);
-    localStorage.setItem('xaumitri49_briefing_verdict', verdict);
-    localStorage.setItem('xaumitri49_briefing_bias', JSON.stringify({ swing: dBias, day: h1Bias, weekly: wBias }));
-    showBriefingResult(text, verdict, { swing: dBias, day: h1Bias, weekly: wBias }, today, false);
-  } catch(e) {
-    document.getElementById('briefingLoading').style.display = 'none';
-    document.getElementById('briefingIdle').style.display = 'block';
-    alert('❌ Erreur API: ' + e.message);
-  }
-}
-
-function showBriefingResult(text, verdict, bias, date, fromCache) {
-  document.getElementById('briefingLoading').style.display = 'none';
-  document.getElementById('briefingIdle').style.display = fromCache ? 'block' : 'none';
-  if(fromCache) {
-    document.getElementById('briefingCachedNotice').style.display = 'block';
-    const btn = document.getElementById('briefingBtn');
-    btn.textContent = '↺ Regénérer le Briefing';
-    btn.style.background = 'var(--bg4)';
-    btn.style.color = 'var(--text2)';
-    btn.style.boxShadow = 'none';
-    btn.style.fontSize = '11px';
-    btn.style.padding = '7px 14px';
-  }
-  document.getElementById('briefingResult').style.display = 'block';
-  document.getElementById('briefingDate').textContent = date;
-  document.getElementById('briefingTime').textContent = new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) + ' UTC';
-  document.getElementById('briefingText').textContent = text;
-
-  if(bias) {
-    const swingBull = bias.swing && bias.swing.includes('bull');
-    const dayBull = bias.day && bias.day.includes('bull');
-    document.getElementById('briefingBiasCards').innerHTML = `
-      <div style="padding:9px;border-radius:7px;border:1px solid ${swingBull?'rgba(16,217,106,0.25)':'rgba(240,62,62,0.25)'};background:${swingBull?'rgba(16,217,106,0.06)':'rgba(240,62,62,0.06)'};">
-        <div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">SWING</div>
-        <div style="font-size:13px;font-weight:800;color:${swingBull?'var(--green)':'var(--red)'};">${swingBull?'▲ Bullish':'▼ Bearish'}</div>
-        <div style="font-size:9px;color:var(--text3);">Daily + Weekly</div>
-      </div>
-      <div style="padding:9px;border-radius:7px;border:1px solid ${dayBull?'rgba(16,217,106,0.25)':'rgba(240,62,62,0.25)'};background:${dayBull?'rgba(16,217,106,0.06)':'rgba(240,62,62,0.06)'};">
-        <div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">DAY TRADING</div>
-        <div style="font-size:13px;font-weight:800;color:${dayBull?'var(--green)':'var(--red)'};">${dayBull?'▲ Bullish':'▼ Bearish'}</div>
-        <div style="font-size:9px;color:var(--text3);">H1 + contexte</div>
-      </div>`;
-  }
-
-  const vEl = document.getElementById('briefingVerdict');
-  const isLong = verdict.toLowerCase().includes('long');
-  const isShort = verdict.toLowerCase().includes('short');
-  vEl.style.background = isLong ? 'rgba(16,217,106,0.08)' : isShort ? 'rgba(240,62,62,0.08)' : 'rgba(255,140,0,0.08)';
-  vEl.style.borderColor = isLong ? 'rgba(16,217,106,0.25)' : isShort ? 'rgba(240,62,62,0.25)' : 'rgba(255,140,0,0.25)';
-  vEl.style.color = isLong ? 'var(--green)' : isShort ? 'var(--red)' : 'var(--orange)';
-  vEl.textContent = verdict || '✅ Voir analyse complète';
-}
-
-function clearBriefing() {
-  localStorage.removeItem('xaumitri49_briefing_date');
-  localStorage.removeItem('xaumitri49_briefing_text');
-  localStorage.removeItem('xaumitri49_briefing_verdict');
-  localStorage.removeItem('xaumitri49_briefing_bias');
-  document.getElementById('briefingResult').style.display = 'none';
-  document.getElementById('briefingLoading').style.display = 'none';
-  document.getElementById('briefingIdle').style.display = 'block';
-  document.getElementById('briefingCachedNotice').style.display = 'none';
-  const btn = document.getElementById('briefingBtn');
-  btn.textContent = '🧠 Générer mon Briefing du Jour';
-  btn.style.background = 'linear-gradient(135deg,var(--gold),#b8860b)';
-  btn.style.color = '#000';
-  btn.style.boxShadow = '0 4px 20px rgba(240,180,41,0.35)';
-  btn.style.fontSize = '13px';
-  btn.style.padding = '12px 28px';
-  generateBriefing();
-}
-
-function checkCachedBriefing() {
-  const today = new Date().toISOString().slice(0,10);
-  const cached = localStorage.getItem('xaumitri49_briefing_date');
-  if(cached === today) {
-    const text = localStorage.getItem('xaumitri49_briefing_text');
-    const verdict = localStorage.getItem('xaumitri49_briefing_verdict');
-    const bias = localStorage.getItem('xaumitri49_briefing_bias');
-    if(text) showBriefingResult(text, verdict, bias ? JSON.parse(bias) : null, today, true);
-  }
-}
-
-// ═══════════════════════════════════════════
-// IDEAL ZONE DETECTION
-// ═══════════════════════════════════════════
-function checkIdealZone() {
-  // Checklist supprimée
-}
-setInterval(checkIdealZone, 30000);
-
-// ═══════════════════════════════════════════
-// CHECKLIST (désactivée)
-// ═══════════════════════════════════════════
-function updateChecklistAuto() {}
-function toggleCheck() {}
-function updateChecklistVerdict() {}
-function resetChecklist() {}
-
-// ═══════════════════════════════════════════
-
-// BRIEFING MULTI-PAIRES
 let briefingPairs = ['XAUUSD','XAGUSD'];
 function toggleBriefingPair(pair, btn) {
   if(briefingPairs.includes(pair)) {
@@ -1998,6 +1864,61 @@ function toggleBriefingPair(pair, btn) {
     btn.classList.add('selected');
   }
 }
+
+function showBriefingResult(text, verdict, bias, date, fromCache) {
+  document.getElementById('briefingLoading').style.display = 'none';
+  document.getElementById('briefingIdle').style.display = fromCache ? 'block' : 'none';
+  if(fromCache) {
+    document.getElementById('briefingCachedNotice').style.display = 'block';
+    const btn = document.getElementById('briefingBtn');
+    btn.textContent = '↺ Regénérer le Briefing';
+    btn.style.background = 'var(--bg4)';btn.style.color = 'var(--text2)';btn.style.boxShadow = 'none';btn.style.fontSize = '11px';btn.style.padding = '7px 14px';
+  }
+  document.getElementById('briefingResult').style.display = 'block';
+  document.getElementById('briefingDate').textContent = date;
+  document.getElementById('briefingTime').textContent = new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) + ' UTC';
+  document.getElementById('briefingText').textContent = text;
+  if(bias) {
+    const swingBull = bias.swing && bias.swing.includes('bull');
+    const dayBull = bias.day && bias.day.includes('bull');
+    document.getElementById('briefingBiasCards').innerHTML = `
+      <div style="padding:9px;border-radius:7px;border:1px solid ${swingBull?'rgba(16,217,106,0.25)':'rgba(240,62,62,0.25)'};background:${swingBull?'rgba(16,217,106,0.06)':'rgba(240,62,62,0.06)'};"><div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">SWING</div><div style="font-size:13px;font-weight:800;color:${swingBull?'var(--green)':'var(--red)'};">${swingBull?'▲ Bullish':'▼ Bearish'}</div><div style="font-size:9px;color:var(--text3);">Daily + Weekly</div></div>
+      <div style="padding:9px;border-radius:7px;border:1px solid ${dayBull?'rgba(16,217,106,0.25)':'rgba(240,62,62,0.25)'};background:${dayBull?'rgba(16,217,106,0.06)':'rgba(240,62,62,0.06)'};"><div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">DAY TRADING</div><div style="font-size:13px;font-weight:800;color:${dayBull?'var(--green)':'var(--red)'};">${dayBull?'▲ Bullish':'▼ Bearish'}</div><div style="font-size:9px;color:var(--text3);">H1 + contexte</div></div>`;
+  }
+  const vEl = document.getElementById('briefingVerdict');
+  const isLong = verdict.toLowerCase().includes('long');
+  const isShort = verdict.toLowerCase().includes('short');
+  vEl.style.background = isLong ? 'rgba(16,217,106,0.08)' : isShort ? 'rgba(240,62,62,0.08)' : 'rgba(255,140,0,0.08)';
+  vEl.style.borderColor = isLong ? 'rgba(16,217,106,0.25)' : isShort ? 'rgba(240,62,62,0.25)' : 'rgba(255,140,0,0.25)';
+  vEl.style.color = isLong ? 'var(--green)' : isShort ? 'var(--red)' : 'var(--orange)';
+  vEl.textContent = verdict || '✅ Voir analyse complète';
+}
+
+function clearBriefing() {
+  localStorage.removeItem('xaumitri49_briefing_date');localStorage.removeItem('xaumitri49_briefing_text');localStorage.removeItem('xaumitri49_briefing_verdict');localStorage.removeItem('xaumitri49_briefing_bias');
+  document.getElementById('briefingResult').style.display = 'none';document.getElementById('briefingLoading').style.display = 'none';document.getElementById('briefingIdle').style.display = 'block';document.getElementById('briefingCachedNotice').style.display = 'none';
+  const btn = document.getElementById('briefingBtn');
+  btn.textContent = '🧠 Générer mon Briefing du Jour';btn.style.background = 'linear-gradient(135deg,var(--gold),#b8860b)';btn.style.color = '#000';btn.style.boxShadow = '0 4px 20px rgba(240,180,41,0.35)';btn.style.fontSize = '13px';btn.style.padding = '12px 28px';
+  generateBriefing();
+}
+
+function checkCachedBriefing() {
+  const today = new Date().toISOString().slice(0,10);
+  const cached = localStorage.getItem('xaumitri49_briefing_date');
+  if(cached === today) {
+    const text = localStorage.getItem('xaumitri49_briefing_text');
+    const verdict = localStorage.getItem('xaumitri49_briefing_verdict');
+    const bias = localStorage.getItem('xaumitri49_briefing_bias');
+    if(text) showBriefingResult(text, verdict, bias ? JSON.parse(bias) : null, today, true);
+  }
+}
+
+function checkIdealZone() {}
+setInterval(checkIdealZone, 30000);
+function updateChecklistAuto() {}
+function toggleCheck() {}
+function updateChecklistVerdict() {}
+function resetChecklist() {}
 
 // PINE SCRIPT STYLE BIAS
 function detectPivots(highs, lows, lookback) {
@@ -2033,21 +1954,13 @@ function analyzeStructure(closes, highs, lows, emaLen, pivotLen) {
   const ll = sl1 && sl2 && sl1 < sl2;
   const emaBias = price > ema ? 1 : -1;
   let strBias = 0;
-  if(hh && hl) strBias = 1;
-  else if(lh && ll) strBias = -1;
+  if(hh && hl) strBias = 1; else if(lh && ll) strBias = -1;
   let trendBias = 0;
   if(emaBias === 1 && strBias >= 0) trendBias = 1;
   else if(emaBias === -1 && strBias <= 0) trendBias = -1;
-  let strTxt = '\u2014';
-  if(hh && hl) strTxt = 'HH+HL';
-  else if(lh && ll) strTxt = 'LH+LL';
-  else if(hh && ll) strTxt = 'HH+LL';
-  else if(lh && hl) strTxt = 'LH+HL';
-  else if(hh) strTxt = 'HH';
-  else if(lh) strTxt = 'LH';
-  else if(hl) strTxt = 'HL';
-  else if(ll) strTxt = 'LL';
-  const force = (trendBias !== 0 && strBias === trendBias) ? '\u25cf\u25cf\u25cf' : (trendBias !== 0) ? '\u25cf\u25cf' : '\u25cf';
+  let strTxt = '—';
+  if(hh && hl) strTxt = 'HH+HL'; else if(lh && ll) strTxt = 'LH+LL'; else if(hh && ll) strTxt = 'HH+LL'; else if(lh && hl) strTxt = 'LH+HL'; else if(hh) strTxt = 'HH'; else if(lh) strTxt = 'LH'; else if(hl) strTxt = 'HL'; else if(ll) strTxt = 'LL';
+  const force = (trendBias !== 0 && strBias === trendBias) ? '●●●' : (trendBias !== 0) ? '●●' : '●';
   return { price, ema, emaBias, strBias, trendBias, strTxt, force, hh, lh, hl, ll, above: price > ema };
 }
 
@@ -2057,27 +1970,15 @@ async function computeBiasProV2() {
   const dashboard = document.getElementById('biasProDashboard');
   const verdict = document.getElementById('biasProVerdict');
   if(!dashboard) return;
-  dashboard.innerHTML = '<div style="font-size:10px;color:var(--text3);text-align:center;padding:6px;"><span class="spin">\u27f3</span> Analyse structure...</div>';
+  dashboard.innerHTML = '<div style="font-size:10px;color:var(--text3);text-align:center;padding:6px;"><span class="spin">⟳</span> Analyse structure...</div>';
   try {
-    const [d300, h4d, h1d] = await Promise.all([
-      fetchYahooCached(yahoo, '300d', '1d'),
-      fetchYahooCached(yahoo, '60d', '1h'),
-      fetchYahooCached(yahoo, '30d', '1h'),
-    ]);
+    const [d300, h4d, h1d] = await Promise.all([fetchYahooCached(yahoo, '300d', '1d'),fetchYahooCached(yahoo, '60d', '1h'),fetchYahooCached(yahoo, '30d', '1h'),]);
     const results = {};
     const pivotLen = 5, emaLen = 200;
     if(d300) { const q=d300.indicators.quote[0]; results.D = analyzeStructure(q.close, q.high, q.low, emaLen, pivotLen); }
     if(h4d) {
-      const q=h4d.indicators.quote[0];
-      const c4=[],h4=[],l4=[];
-      for(let i=0;i<q.close.length;i+=4){
-        const sl=q.close.slice(i,i+4).filter(x=>x);
-        const sh=q.high.slice(i,i+4).filter(x=>x);
-        const slo=q.low.slice(i,i+4).filter(x=>x);
-        if(sl.length) c4.push(sl[sl.length-1]);
-        if(sh.length) h4.push(Math.max(...sh));
-        if(slo.length) l4.push(Math.min(...slo));
-      }
+      const q=h4d.indicators.quote[0]; const c4=[],h4=[],l4=[];
+      for(let i=0;i<q.close.length;i+=4){const sl=q.close.slice(i,i+4).filter(x=>x);const sh=q.high.slice(i,i+4).filter(x=>x);const slo=q.low.slice(i,i+4).filter(x=>x);if(sl.length)c4.push(sl[sl.length-1]);if(sh.length)h4.push(Math.max(...sh));if(slo.length)l4.push(Math.min(...slo));}
       results.H4 = analyzeStructure(c4, h4, l4, Math.min(emaLen,50), pivotLen);
     }
     if(h1d) { const q=h1d.indicators.quote[0]; results.H1 = analyzeStructure(q.close, q.high, q.low, Math.min(emaLen,50), pivotLen); }
@@ -2085,10 +1986,10 @@ async function computeBiasProV2() {
     let rawScore = 0, dashHTML = '';
     ['D','H4','H1'].forEach(tf => {
       const r = results[tf];
-      if(!r) { dashHTML += '<div class="bias-score-row"><span style="min-width:28px;font-size:10px;font-weight:700;color:var(--text2);">'+tf+'</span><span style="font-size:10px;color:var(--text3);">Donn\u00e9es insuffisantes</span></div>'; return; }
+      if(!r) { dashHTML += '<div class="bias-score-row"><span style="min-width:28px;font-size:10px;font-weight:700;color:var(--text2);">'+tf+'</span><span style="font-size:10px;color:var(--text3);">Données insuffisantes</span></div>'; return; }
       rawScore += r.trendBias * weights[tf];
       const tC = r.trendBias===1?'var(--green)':r.trendBias===-1?'var(--red)':'var(--orange)';
-      const tI = r.trendBias===1?'\u25b2':r.trendBias===-1?'\u25bc':'\u25c6';
+      const tI = r.trendBias===1?'▲':r.trendBias===-1?'▼':'◆';
       const eT = r.emaBias===1?'OK':'NO';
       const eC = r.emaBias===1?'var(--green)':'var(--red)';
       const sC = r.strBias===1?'var(--green)':r.strBias===-1?'var(--red)':'var(--orange)';
@@ -2100,9 +2001,9 @@ async function computeBiasProV2() {
     const scoreRatio = rawScore / totalWeight;
     const scorePct = Math.round((scoreRatio+1)/2*100);
     let vT,vI,vC;
-    if(scoreRatio>0.5){vT='FULL BUY';vI='\ud83d\udfe2';vC='var(--green)';}
-    else if(scoreRatio<-0.5){vT='FULL SELL';vI='\ud83d\udd34';vC='var(--red)';}
-    else{vT='NEUTRE';vI='\ud83d\udfe1';vC='var(--orange)';}
+    if(scoreRatio>0.5){vT='FULL BUY';vI='🟢';vC='var(--green)';}
+    else if(scoreRatio<-0.5){vT='FULL SELL';vI='🔴';vC='var(--red)';}
+    else{vT='NEUTRE';vI='🟡';vC='var(--orange)';}
     verdict.innerHTML = vI+' '+vT+' <span style="font-family:JetBrains Mono,monospace;margin-left:8px;">Score: '+scorePct+'%</span>';
     verdict.style.color = vC; verdict.style.borderColor = vC;
     verdict.style.background = scoreRatio>0.5?'rgba(16,217,106,0.06)':scoreRatio<-0.5?'rgba(240,62,62,0.06)':'rgba(255,140,0,0.06)';
@@ -2112,15 +2013,14 @@ async function computeBiasProV2() {
     window._biasProScore = scoreRatio;
     computeRiskForPair(biasAsset);
   } catch(e) {
-    dashboard.innerHTML = '<div style="font-size:10px;color:var(--text3);text-align:center;padding:6px;">\u26a0\ufe0f Erreur calcul structure</div>';
+    dashboard.innerHTML = '<div style="font-size:10px;color:var(--text3);text-align:center;padding:6px;">⚠️ Erreur calcul structure</div>';
   }
 }
 
-// RISK-ON/OFF DYNAMIQUE
 function computeRiskForPair(pairId) {
   const label = document.getElementById('riskPairLabel');
   const pairConf = ALL_PAIRS.find(p => p.id === pairId);
-  if(label) label.textContent = (pairConf?.sym || pairId) + ' \u2014 Contexte Risk';
+  if(label) label.textContent = (pairConf?.sym || pairId) + ' — Contexte Risk';
   let score = 50;
   const vixVal = pairPrices['VIX']?.price || 18;
   if(vixVal > 30) score += 25; else if(vixVal > 25) score += 18; else if(vixVal > 20) score += 8; else if(vixVal < 15) score -= 12; else score -= 5;
@@ -2135,39 +2035,34 @@ function computeRiskForPair(pairId) {
   const needle = document.getElementById('riskNeedle'); if(needle) needle.style.left = score+'%';
   const labelEl = document.getElementById('riskLabel'), sub = document.getElementById('riskSub');
   if(labelEl) {
-    if(score<30){labelEl.className='risk-value-val risk-on';labelEl.textContent='RISK-ON';sub.textContent='VIX: '+(vixVal?.toFixed(1)||'\u2014')+' \u00b7 App\u00e9tit risque \u00e9lev\u00e9';}
-    else if(score>70){labelEl.className='risk-value-val risk-off';labelEl.textContent='RISK-OFF';sub.textContent='VIX: '+(vixVal?.toFixed(1)||'\u2014')+' \u00b7 Aversion au risque';}
-    else{labelEl.className='risk-value-val neutral';labelEl.textContent='NEUTRE';sub.textContent='VIX: '+(vixVal?.toFixed(1)||'\u2014')+' \u00b7 Surveiller DXY/VIX';}
+    if(score<30){labelEl.className='risk-value-val risk-on';labelEl.textContent='RISK-ON';sub.textContent='VIX: '+(vixVal?.toFixed(1)||'—')+' · Appétit risque élevé';}
+    else if(score>70){labelEl.className='risk-value-val risk-off';labelEl.textContent='RISK-OFF';sub.textContent='VIX: '+(vixVal?.toFixed(1)||'—')+' · Aversion au risque';}
+    else{labelEl.className='risk-value-val neutral';labelEl.textContent='NEUTRE';sub.textContent='VIX: '+(vixVal?.toFixed(1)||'—')+' · Surveiller DXY/VIX';}
   }
 }
 
 // VOLUMES
 async function loadVolumes() {
   const vl = document.getElementById('volumeList'); if(!vl) return;
-  vl.innerHTML = '<div style="text-align:center;padding:10px;font-size:10px;color:var(--text3);"><span class="spin">\u27f3</span> Chargement...</div>';
+  vl.innerHTML = '<div style="text-align:center;padding:10px;font-size:10px;color:var(--text3);"><span class="spin">⟳</span> Chargement...</div>';
   const pairs=[{id:'XAUUSD',sym:'XAU/USD',yahoo:'GC=F',color:'var(--gold)'},{id:'XAGUSD',sym:'XAG/USD',yahoo:'SI=F',color:'var(--silver)'},{id:'DXY',sym:'DXY',yahoo:'DX-Y.NYB',color:'var(--blue)'},{id:'SPX500',sym:'SPX500',yahoo:'^GSPC',color:'#34d399'}];
   const vd=[]; let mx=0;
   for(const p of pairs){try{const d=await fetchYahooCached(p.yahoo,'5d','1d');if(d){const vs=d.indicators.quote[0].volume.filter(x=>x);const tv=vs[vs.length-1]||0,pv=vs[vs.length-2]||tv;const vc=pv?((tv-pv)/pv*100):0;const av=vs.length>1?vs.slice(0,-1).reduce((a,b)=>a+b,0)/(vs.length-1):tv;vd.push({...p,vol:tv,volChg:vc,avgVol:av,ratio:av?tv/av:1});if(tv>mx)mx=tv;}}catch(e){}}
-  if(!vd.length){vl.innerHTML='<div style="text-align:center;padding:10px;font-size:10px;color:var(--text3);">\u26a0\ufe0f Volumes indisponibles</div>';return;}
-  vl.innerHTML=vd.map(v=>{const bp=mx?Math.round(v.vol/mx*100):0;const cc=v.volChg>=0?'up':'down';const rl=v.ratio>=1.5?'\ud83d\udd25 Fort':v.ratio>=1?'\u2705 Normal':'\ud83d\udcc9 Faible';const rc=v.ratio>=1.5?'var(--green)':v.ratio>=1?'var(--text2)':'var(--red)';return '<div class="vol-row"><span class="vol-pair" style="color:'+v.color+';min-width:60px;">'+v.sym+'</span><div class="vol-bar-wrap"><div class="vol-bar" style="width:'+bp+'%;background:'+v.color+';"></div></div><div style="text-align:right;min-width:80px;"><div class="vol-val">'+fmtVol(v.vol)+'</div><div class="vol-chg '+cc+'">'+(v.volChg>=0?'+':'')+v.volChg.toFixed(1)+'%</div></div><div style="min-width:55px;text-align:right;"><span style="font-size:8px;color:'+rc+';">'+rl+'</span></div></div>';}).join('');
+  if(!vd.length){vl.innerHTML='<div style="text-align:center;padding:10px;font-size:10px;color:var(--text3);">⚠️ Volumes indisponibles</div>';return;}
+  vl.innerHTML=vd.map(v=>{const bp=mx?Math.round(v.vol/mx*100):0;const cc=v.volChg>=0?'up':'down';const rl=v.ratio>=1.5?'🔥 Fort':v.ratio>=1?'✅ Normal':'📉 Faible';const rc=v.ratio>=1.5?'var(--green)':v.ratio>=1?'var(--text2)':'var(--red)';return '<div class="vol-row"><span class="vol-pair" style="color:'+v.color+';min-width:60px;">'+v.sym+'</span><div class="vol-bar-wrap"><div class="vol-bar" style="width:'+bp+'%;background:'+v.color+';"></div></div><div style="text-align:right;min-width:80px;"><div class="vol-val">'+fmtVol(v.vol)+'</div><div class="vol-chg '+cc+'">'+(v.volChg>=0?'+':'')+v.volChg.toFixed(1)+'%</div></div><div style="min-width:55px;text-align:right;"><span style="font-size:8px;color:'+rc+';">'+rl+'</span></div></div>';}).join('');
 }
 function fmtVol(v){if(v>=1e9)return(v/1e9).toFixed(1)+'B';if(v>=1e6)return(v/1e6).toFixed(1)+'M';if(v>=1e3)return(v/1e3).toFixed(0)+'K';return v.toString();}
 
-// OVERRIDES
 const _ocba = changeBiasAsset;
 changeBiasAsset = async function(id) { await _ocba(id); await computeBiasProV2(); };
 
-
 // BRIEFING OVERRIDE
-const _ogb = generateBriefing;
 generateBriefing = async function() {
   if(!API_KEY) { openModal(); return; }
   const today = new Date().toISOString().slice(0,10);
   const cached = localStorage.getItem('xaumitri49_briefing_date');
   if(cached === today) { const st=localStorage.getItem('xaumitri49_briefing_text'); const sv=localStorage.getItem('xaumitri49_briefing_verdict'); const sb=localStorage.getItem('xaumitri49_briefing_bias'); if(st){showBriefingResult(st,sv,sb?JSON.parse(sb):null,today,true);return;} }
-  document.getElementById('briefingIdle').style.display='none';
-  document.getElementById('briefingResult').style.display='none';
-  document.getElementById('briefingLoading').style.display='block';
+  document.getElementById('briefingIdle').style.display='none';document.getElementById('briefingResult').style.display='none';document.getElementById('briefingLoading').style.display='block';
   const pi=[];
   for(const pid of briefingPairs){const pp=pairPrices[pid];const dec=ALL_PAIRS.find(p=>p.id===pid)?.decimals||2;pi.push(pid+': '+(pp?parseFloat(pp.price).toFixed(dec):'--')+' ('+(pp?(pp.chg>=0?'+':'')+pp.chgPct.toFixed(2)+'%':'--')+')');}
   const dxy=pairPrices['DXY']?.price?.toFixed(3)||'--';
@@ -2186,36 +2081,25 @@ generateBriefing = async function() {
     const text = await claudeAPI(prompt, 900);
     const vm = text.match(/VERDICT DU JOUR\n(.+)/);
     const vt = vm ? vm[1].trim() : '';
-    localStorage.setItem('xaumitri49_briefing_date', today);
-    localStorage.setItem('xaumitri49_briefing_text', text);
-    localStorage.setItem('xaumitri49_briefing_verdict', vt);
-    localStorage.setItem('xaumitri49_briefing_bias', JSON.stringify({swing:dB,day:h1B,weekly:wB}));
+    localStorage.setItem('xaumitri49_briefing_date', today);localStorage.setItem('xaumitri49_briefing_text', text);localStorage.setItem('xaumitri49_briefing_verdict', vt);localStorage.setItem('xaumitri49_briefing_bias', JSON.stringify({swing:dB,day:h1B,weekly:wB}));
     showBriefingResult(text, vt, {swing:dB,day:h1B,weekly:wB}, today, false);
   } catch(e) {
-    document.getElementById('briefingLoading').style.display='none';
-    document.getElementById('briefingIdle').style.display='block';
+    document.getElementById('briefingLoading').style.display='none';document.getElementById('briefingIdle').style.display='block';
     alert('Erreur API: '+e.message);
   }
 };
 
-// ===============================================
-// SENTIMENT DU MARCHE - INDEPENDANT
-// Calcul RSI + Momentum + Volume + EMA position
-// ===============================================
+// ═══════════════════════════════════════════
+// SENTIMENT
+// ═══════════════════════════════════════════
 function calcRSI(closes, period) {
   const c = closes.filter(x => x != null && !isNaN(x));
   if(c.length < period + 1) return 50;
   let gains = 0, losses = 0;
-  for(let i = c.length - period; i < c.length; i++) {
-    const diff = c[i] - c[i-1];
-    if(diff > 0) gains += diff;
-    else losses -= diff;
-  }
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
+  for(let i = c.length - period; i < c.length; i++) { const diff = c[i] - c[i-1]; if(diff > 0) gains += diff; else losses -= diff; }
+  const avgGain = gains / period; const avgLoss = losses / period;
   if(avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return 100 - (100 / (1 + rs));
+  return 100 - (100 / (1 + avgGain / avgLoss));
 }
 
 function calcMomentum(closes, shortP, longP) {
@@ -2235,275 +2119,85 @@ function calcVolumeTrend(volumes) {
   return ((recent - older) / older) * 100;
 }
 
-
-// ═══════════════════════════════════════
-// RSI DIVERGENCE DETECTION
-// ═══════════════════════════════════════
 function detectRSIDivergence(closes, period) {
-  // Calculate RSI for each point in the last N days
   const c = closes.filter(x => x != null && !isNaN(x));
   if(c.length < period + 10) return null;
-  
-  // Get RSI values for the last 20 periods
   const rsiValues = [];
-  for(let i = period + 1; i <= c.length; i++) {
-    const slice = c.slice(0, i);
-    rsiValues.push({ price: slice[slice.length-1], rsi: calcRSI(slice, period), idx: i-1 });
-  }
-  
+  for(let i = period + 1; i <= c.length; i++) { const slice = c.slice(0, i); rsiValues.push({ price: slice[slice.length-1], rsi: calcRSI(slice, period), idx: i-1 }); }
   if(rsiValues.length < 10) return null;
   const recent = rsiValues.slice(-20);
-  
-  // Find local highs and lows in price (last 20 bars)
-  function findPeaks(arr, key) {
-    const peaks = [];
-    for(let i = 2; i < arr.length - 1; i++) {
-      if(arr[i][key] > arr[i-1][key] && arr[i][key] > arr[i-2][key] &&
-         arr[i][key] > arr[i+1][key]) {
-        peaks.push(arr[i]);
-      }
-    }
-    return peaks;
-  }
-  
-  function findTroughs(arr, key) {
-    const troughs = [];
-    for(let i = 2; i < arr.length - 1; i++) {
-      if(arr[i][key] < arr[i-1][key] && arr[i][key] < arr[i-2][key] &&
-         arr[i][key] < arr[i+1][key]) {
-        troughs.push(arr[i]);
-      }
-    }
-    return troughs;
-  }
-  
-  const priceHighs = findPeaks(recent, 'price');
-  const priceLows = findTroughs(recent, 'price');
-  const rsiHighs = findPeaks(recent, 'rsi');
-  const rsiLows = findTroughs(recent, 'rsi');
-  
-  // Bearish divergence: price makes higher high but RSI makes lower high
+  function findPeaks(arr, key) { const peaks = []; for(let i = 2; i < arr.length - 1; i++) { if(arr[i][key] > arr[i-1][key] && arr[i][key] > arr[i-2][key] && arr[i][key] > arr[i+1][key]) peaks.push(arr[i]); } return peaks; }
+  function findTroughs(arr, key) { const troughs = []; for(let i = 2; i < arr.length - 1; i++) { if(arr[i][key] < arr[i-1][key] && arr[i][key] < arr[i-2][key] && arr[i][key] < arr[i+1][key]) troughs.push(arr[i]); } return troughs; }
+  const priceHighs = findPeaks(recent, 'price'); const rsiHighs = findPeaks(recent, 'rsi');
+  const priceLows = findTroughs(recent, 'price'); const rsiLows = findTroughs(recent, 'rsi');
   if(priceHighs.length >= 2 && rsiHighs.length >= 2) {
     const ph1 = priceHighs[priceHighs.length-2], ph2 = priceHighs[priceHighs.length-1];
     const rh1 = rsiHighs[rsiHighs.length-2], rh2 = rsiHighs[rsiHighs.length-1];
-    if(ph2.price > ph1.price && rh2.rsi < rh1.rsi && rh2.rsi > 55) {
-      return { type: 'bearish', label: 'DIV. BAISSIERE', desc: 'Prix \u2191 mais RSI \u2193 \u2014 retournement possible', icon: '\u26a0\ufe0f', cls: 'bear' };
-    }
+    if(ph2.price > ph1.price && rh2.rsi < rh1.rsi && rh2.rsi > 55) return { type: 'bearish', label: 'DIV. BAISSIERE', desc: 'Prix ↑ mais RSI ↓ — retournement possible', icon: '⚠️', cls: 'bear' };
   }
-  
-  // Bullish divergence: price makes lower low but RSI makes higher low
   if(priceLows.length >= 2 && rsiLows.length >= 2) {
     const pl1 = priceLows[priceLows.length-2], pl2 = priceLows[priceLows.length-1];
     const rl1 = rsiLows[rsiLows.length-2], rl2 = rsiLows[rsiLows.length-1];
-    if(pl2.price < pl1.price && rl2.rsi > rl1.rsi && rl2.rsi < 45) {
-      return { type: 'bullish', label: 'DIV. HAUSSIERE', desc: 'Prix \u2193 mais RSI \u2191 \u2014 rebond possible', icon: '\ud83d\udfe2', cls: 'bull' };
-    }
+    if(pl2.price < pl1.price && rl2.rsi > rl1.rsi && rl2.rsi < 45) return { type: 'bullish', label: 'DIV. HAUSSIERE', desc: 'Prix ↓ mais RSI ↑ — rebond possible', icon: '🟢', cls: 'bull' };
   }
-  
   return null;
 }
 
 async function computeSentimentForPair(pairId, yahooSym, color) {
   try {
-    const [daily, hourly] = await Promise.all([
-      fetchYahooCached(yahooSym, '60d', '1d'),
-      fetchYahooCached(yahooSym, '7d', '1h'),
-    ]);
+    const [daily, hourly] = await Promise.all([fetchYahooCached(yahooSym, '60d', '1d'),fetchYahooCached(yahooSym, '7d', '1h'),]);
     if(!daily) return null;
-    
     const dq = daily.indicators.quote[0];
-    const closes = dq.close.filter(x => x);
-    const highs = dq.high.filter(x => x);
-    const lows = dq.low.filter(x => x);
-    const volumes = dq.volume.filter(x => x);
+    const closes = dq.close.filter(x => x); const highs = dq.high.filter(x => x); const lows = dq.low.filter(x => x); const volumes = dq.volume.filter(x => x);
     const price = closes[closes.length - 1];
-    
-    // 1. RSI (14)
     const rsi = calcRSI(closes, 14);
     const rsiScore = rsi > 70 ? 80 : rsi > 60 ? 65 : rsi > 50 ? 55 : rsi > 40 ? 45 : rsi > 30 ? 35 : 20;
-    
-    // 2. Momentum (5d vs 20d)
     const mom = calcMomentum(closes, 5, 20);
-    let momScore = 50;
-    if(mom.shortChg > 2) momScore = 80;
-    else if(mom.shortChg > 0.5) momScore = 65;
-    else if(mom.shortChg > -0.5) momScore = 50;
-    else if(mom.shortChg > -2) momScore = 35;
-    else momScore = 20;
-    
-    // 3. EMA Position (prix vs EMA20 + EMA50)
-    const ema20 = calcEMA(closes, 20);
-    const ema50 = calcEMA(closes, Math.min(50, closes.length));
-    let emaScore = 50;
-    if(price > ema20 && price > ema50) emaScore = 75;
-    else if(price > ema20) emaScore = 60;
-    else if(price > ema50) emaScore = 45;
-    else emaScore = 25;
-    
-    // 4. Volume Trend
+    let momScore = 50; if(mom.shortChg > 2) momScore = 80; else if(mom.shortChg > 0.5) momScore = 65; else if(mom.shortChg > -0.5) momScore = 50; else if(mom.shortChg > -2) momScore = 35; else momScore = 20;
+    const ema20 = calcEMA(closes, 20); const ema50 = calcEMA(closes, Math.min(50, closes.length));
+    let emaScore = 50; if(price > ema20 && price > ema50) emaScore = 75; else if(price > ema20) emaScore = 60; else if(price > ema50) emaScore = 45; else emaScore = 25;
     const volTrend = calcVolumeTrend(volumes);
-    // Volume hausse + prix hausse = bullish / Volume hausse + prix baisse = bearish
-    let volScore = 50;
-    const priceUp = mom.shortChg > 0;
-    if(volTrend > 20 && priceUp) volScore = 75;
-    else if(volTrend > 20 && !priceUp) volScore = 25;
-    else if(volTrend > 0 && priceUp) volScore = 60;
-    else if(volTrend < -10) volScore = 40;
-    else volScore = 50;
-    
-    // 5. Candle Pattern (dernier jour)
-    const n = closes.length;
-    const lastOpen = dq.open.filter(x => x);
-    let candleScore = 50;
-    if(n >= 2 && lastOpen.length >= 1) {
-      const o = lastOpen[lastOpen.length-1];
-      const c = closes[n-1];
-      const h = highs[highs.length-1];
-      const l = lows[lows.length-1];
-      const body = Math.abs(c - o);
-      const range = h - l;
-      const isBullCandle = c > o;
-      // Big body bullish/bearish
-      if(range > 0 && body / range > 0.6) {
-        candleScore = isBullCandle ? 70 : 30;
-      } else if(range > 0 && body / range < 0.2) {
-        candleScore = 50; // Doji = indecision
-      } else {
-        candleScore = isBullCandle ? 58 : 42;
-      }
-    }
-    
-    // H1 RSI if available
-    let h1Rsi = null;
-    if(hourly) {
-      const hc = hourly.indicators.quote[0].close.filter(x => x);
-      h1Rsi = calcRSI(hc, 14);
-    }
-    
-
-    // 6. RSI Divergence detection
+    let volScore = 50; const priceUp = mom.shortChg > 0;
+    if(volTrend > 20 && priceUp) volScore = 75; else if(volTrend > 20 && !priceUp) volScore = 25; else if(volTrend > 0 && priceUp) volScore = 60; else if(volTrend < -10) volScore = 40; else volScore = 50;
+    const n = closes.length; const lastOpen = dq.open.filter(x => x); let candleScore = 50;
+    if(n >= 2 && lastOpen.length >= 1) { const o = lastOpen[lastOpen.length-1]; const c = closes[n-1]; const h = highs[highs.length-1]; const l = lows[lows.length-1]; const body = Math.abs(c - o); const range = h - l; const isBullCandle = c > o; if(range > 0 && body / range > 0.6) { candleScore = isBullCandle ? 70 : 30; } else if(range > 0 && body / range < 0.2) { candleScore = 50; } else { candleScore = isBullCandle ? 58 : 42; } }
+    let h1Rsi = null; if(hourly) { const hc = hourly.indicators.quote[0].close.filter(x => x); h1Rsi = calcRSI(hc, 14); }
     let divergence = detectRSIDivergence(closes, 14);
-
-    // Weighted average: RSI(25%) + Momentum(25%) + EMA(20%) + Volume(15%) + Candle(15%)
-    const totalScore = Math.round(
-      rsiScore * 0.25 +
-      momScore * 0.25 +
-      emaScore * 0.20 +
-      volScore * 0.15 +
-      candleScore * 0.15
-    );
-    
-    return {
-      pairId, color, price,
-      total: totalScore,
-      rsi: Math.round(rsi),
-      rsiScore,
-      momentum: mom.shortChg,
-      momScore,
-      emaAbove20: price > ema20,
-      emaAbove50: price > ema50,
-      emaScore,
-      volTrend: volTrend,
-      volScore,
-      candleScore,
-      h1Rsi: h1Rsi ? Math.round(h1Rsi) : null,
-      divergence: divergence,
-    };
-  } catch(e) {
-    return null;
-  }
+    const totalScore = Math.round(rsiScore * 0.25 + momScore * 0.25 + emaScore * 0.20 + volScore * 0.15 + candleScore * 0.15);
+    return { pairId, color, price, total: totalScore, rsi: Math.round(rsi), rsiScore, momentum: mom.shortChg, momScore, emaAbove20: price > ema20, emaAbove50: price > ema50, emaScore, volTrend, volScore, candleScore, h1Rsi: h1Rsi ? Math.round(h1Rsi) : null, divergence };
+  } catch(e) { return null; }
 }
 
 async function computeAllSentiment() {
-  const module = document.getElementById('sentimentModule');
-  if(!module) return;
-  module.innerHTML = '<div style="text-align:center;padding:12px;font-size:10px;color:var(--text3);"><span class="spin">\u27f3</span> Calcul sentiment...</div>';
-  
-  // Always compute for XAU and XAG + current bias pair if different
-  const pairs = [
-    { id: 'XAUUSD', sym: 'XAU/USD', yahoo: 'GC=F', color: 'var(--gold)' },
-    { id: 'XAGUSD', sym: 'XAG/USD', yahoo: 'SI=F', color: 'var(--silver)' },
-  ];
-  
+  const module = document.getElementById('sentimentModule'); if(!module) return;
+  module.innerHTML = '<div style="text-align:center;padding:12px;font-size:10px;color:var(--text3);"><span class="spin">⟳</span> Calcul sentiment...</div>';
+  const pairs = [{ id: 'XAUUSD', sym: 'XAU/USD', yahoo: 'GC=F', color: 'var(--gold)' },{ id: 'XAGUSD', sym: 'XAG/USD', yahoo: 'SI=F', color: 'var(--silver)' },];
   const biasAsset = document.getElementById('biasAssetSelect')?.value;
-  if(biasAsset && biasAsset !== 'XAUUSD' && biasAsset !== 'XAGUSD') {
-    const bp = ALL_PAIRS.find(p => p.id === biasAsset);
-    if(bp) pairs.push({ id: bp.id, sym: bp.sym, yahoo: bp.yahoo, color: bp.color });
-  }
-  
+  if(biasAsset && biasAsset !== 'XAUUSD' && biasAsset !== 'XAGUSD') { const bp = ALL_PAIRS.find(p => p.id === biasAsset); if(bp) pairs.push({ id: bp.id, sym: bp.sym, yahoo: bp.yahoo, color: bp.color }); }
   const results = [];
-  for(const p of pairs) {
-    const r = await computeSentimentForPair(p.id, p.yahoo, p.color);
-    if(r) { r.sym = p.sym; results.push(r); }
-  }
-  
-  if(!results.length) {
-    module.innerHTML = '<div style="text-align:center;padding:12px;font-size:10px;color:var(--text3);">\u26a0\ufe0f Sentiment indisponible</div>';
-    return;
-  }
-  
-  // Render each pair
+  for(const p of pairs) { const r = await computeSentimentForPair(p.id, p.yahoo, p.color); if(r) { r.sym = p.sym; results.push(r); } }
+  if(!results.length) { module.innerHTML = '<div style="text-align:center;padding:12px;font-size:10px;color:var(--text3);">⚠️ Sentiment indisponible</div>'; return; }
   module.innerHTML = results.map(r => {
     const cls = r.total >= 60 ? 'bull' : r.total <= 40 ? 'bear' : 'neutral';
-    const labelTxt = r.total >= 70 ? 'TR\u00c8S HAUSSIER' : r.total >= 60 ? 'HAUSSIER' : r.total >= 55 ? 'L\u00c9G. HAUSSIER' : r.total >= 45 ? 'NEUTRE' : r.total >= 40 ? 'L\u00c9G. BAISSIER' : r.total >= 30 ? 'BAISSIER' : 'TR\u00c8S BAISSIER';
+    const labelTxt = r.total >= 70 ? 'TRÈS HAUSSIER' : r.total >= 60 ? 'HAUSSIER' : r.total >= 55 ? 'LÉG. HAUSSIER' : r.total >= 45 ? 'NEUTRE' : r.total >= 40 ? 'LÉG. BAISSIER' : r.total >= 30 ? 'BAISSIER' : 'TRÈS BAISSIER';
     const rsiCls = r.rsi > 60 ? 'bull' : r.rsi < 40 ? 'bear' : 'neutral';
     const momCls = r.momentum > 0.5 ? 'bull' : r.momentum < -0.5 ? 'bear' : 'neutral';
     const emaCls = r.emaAbove20 && r.emaAbove50 ? 'bull' : !r.emaAbove20 && !r.emaAbove50 ? 'bear' : 'neutral';
     const volCls = r.volScore >= 60 ? 'bull' : r.volScore <= 40 ? 'bear' : 'neutral';
     const candleCls = r.candleScore >= 60 ? 'bull' : r.candleScore <= 40 ? 'bear' : 'neutral';
-    
-    return '<div class="sent-pair-block">' +
-      '<div class="sent-pair-header">' +
-        '<span class="sent-pair-name" style="color:'+r.color+';">'+r.sym+'</span>' +
-        '<div style="display:flex;align-items:center;gap:8px;">' +
-          '<span class="sent-pair-score '+cls+'">'+r.total+'%</span>' +
-          '<span class="sent-pair-label '+cls+'">'+labelTxt+'</span>' +
-        '</div>' +
-      '</div>' +
-      '<div class="sent-gauge">' +
-        '<div class="sent-gauge-needle" style="left:'+r.total+'%;"></div>' +
-      '</div>' +
-      '<div class="sent-gauge-labels"><span>Bear</span><span>Neutre</span><span>Bull</span></div>' +
-      '<div class="sent-factors">' +
-        '<div class="sent-factor"><span class="sent-factor-name">RSI (14)</span><span class="sent-factor-val '+rsiCls+'">'+r.rsi+(r.rsi>70?' \ud83d\udd34':r.rsi<30?' \ud83d\udfe2':'')+'</span></div>' +
-        '<div class="sent-factor"><span class="sent-factor-name">Momentum 5j</span><span class="sent-factor-val '+momCls+'">'+(r.momentum>=0?'+':'')+r.momentum.toFixed(2)+'%</span></div>' +
-        '<div class="sent-factor"><span class="sent-factor-name">EMA 20/50</span><span class="sent-factor-val '+emaCls+'">'+(r.emaAbove20?'\u2714':'\u2718')+' / '+(r.emaAbove50?'\u2714':'\u2718')+'</span></div>' +
-        '<div class="sent-factor"><span class="sent-factor-name">Volume</span><span class="sent-factor-val '+volCls+'">'+(r.volTrend>=0?'+':'')+r.volTrend.toFixed(0)+'%</span></div>' +
-        '<div class="sent-factor"><span class="sent-factor-name">Bougie</span><span class="sent-factor-val '+candleCls+'">'+(r.candleScore>=60?'\ud83d\udfe2 Haussier':r.candleScore<=40?'\ud83d\udd34 Baissier':'\ud83d\udfe1 Neutre')+'</span></div>' +
-        (r.h1Rsi !== null ? '<div class="sent-factor"><span class="sent-factor-name">RSI H1</span><span class="sent-factor-val '+(r.h1Rsi>60?'bull':r.h1Rsi<40?'bear':'neutral')+'">'+r.h1Rsi+'</span></div>' : '') +
-      '</div>' +
-      (r.divergence ? '<div style="margin-top:6px;padding:5px 8px;border-radius:5px;font-size:9px;font-weight:700;display:flex;align-items:center;gap:6px;border:1px solid '+(r.divergence.cls==='bull'?'rgba(16,217,106,0.3)':'rgba(240,62,62,0.3)')+';background:'+(r.divergence.cls==='bull'?'rgba(16,217,106,0.06)':'rgba(240,62,62,0.06)')+';"><span>'+r.divergence.icon+'</span><span style="color:'+(r.divergence.cls==='bull'?'var(--green)':'var(--red)')+';">'+r.divergence.label+'</span><span style="color:var(--text3);font-weight:400;">'+r.divergence.desc+'</span></div>' : '') +
-    '</div>';
+    return '<div class="sent-pair-block"><div class="sent-pair-header"><span class="sent-pair-name" style="color:'+r.color+';">'+r.sym+'</span><div style="display:flex;align-items:center;gap:8px;"><span class="sent-pair-score '+cls+'">'+r.total+'%</span><span class="sent-pair-label '+cls+'">'+labelTxt+'</span></div></div><div class="sent-gauge"><div class="sent-gauge-needle" style="left:'+r.total+'%;"></div></div><div class="sent-gauge-labels"><span>Bear</span><span>Neutre</span><span>Bull</span></div><div class="sent-factors"><div class="sent-factor"><span class="sent-factor-name">RSI (14)</span><span class="sent-factor-val '+rsiCls+'">'+r.rsi+(r.rsi>70?' 🔴':r.rsi<30?' 🟢':'')+'</span></div><div class="sent-factor"><span class="sent-factor-name">Momentum 5j</span><span class="sent-factor-val '+momCls+'">'+(r.momentum>=0?'+':'')+r.momentum.toFixed(2)+'%</span></div><div class="sent-factor"><span class="sent-factor-name">EMA 20/50</span><span class="sent-factor-val '+emaCls+'">'+(r.emaAbove20?'✔':'✘')+' / '+(r.emaAbove50?'✔':'✘')+'</span></div><div class="sent-factor"><span class="sent-factor-name">Volume</span><span class="sent-factor-val '+volCls+'">'+(r.volTrend>=0?'+':'')+r.volTrend.toFixed(0)+'%</span></div><div class="sent-factor"><span class="sent-factor-name">Bougie</span><span class="sent-factor-val '+candleCls+'">'+(r.candleScore>=60?'🟢 Haussier':r.candleScore<=40?'🔴 Baissier':'🟡 Neutre')+'</span></div>'+(r.h1Rsi !== null ? '<div class="sent-factor"><span class="sent-factor-name">RSI H1</span><span class="sent-factor-val '+(r.h1Rsi>60?'bull':r.h1Rsi<40?'bear':'neutral')+'">'+r.h1Rsi+'</span></div>' : '')+'</div>'+(r.divergence ? '<div style="margin-top:6px;padding:5px 8px;border-radius:5px;font-size:9px;font-weight:700;display:flex;align-items:center;gap:6px;border:1px solid '+(r.divergence.cls==='bull'?'rgba(16,217,106,0.3)':'rgba(240,62,62,0.3)')+';background:'+(r.divergence.cls==='bull'?'rgba(16,217,106,0.06)':'rgba(240,62,62,0.06)')+';"><span>'+r.divergence.icon+'</span><span style="color:'+(r.divergence.cls==='bull'?'var(--green)':'var(--red)')+';">'+r.divergence.label+'</span><span style="color:var(--text3);font-weight:400;">'+r.divergence.desc+'</span></div>' : '')+'</div>';
   }).join('');
-  
-  // Global verdict
   const avg = Math.round(results.reduce((s, r) => s + r.total, 0) / results.length);
-  const gCls = avg >= 60 ? 'bull' : avg <= 40 ? 'bear' : 'neutral';
   const gCol = avg >= 60 ? 'var(--green)' : avg <= 40 ? 'var(--red)' : 'var(--orange)';
-  const gIcon = avg >= 60 ? '\ud83d\udfe2' : avg <= 40 ? '\ud83d\udd34' : '\ud83d\udfe1';
-  const gTxt = avg >= 70 ? 'SENTIMENT TR\u00c8S HAUSSIER' : avg >= 60 ? 'SENTIMENT HAUSSIER' : avg >= 45 ? 'SENTIMENT NEUTRE / MIXTE' : avg >= 30 ? 'SENTIMENT BAISSIER' : 'SENTIMENT TR\u00c8S BAISSIER';
+  const gIcon = avg >= 60 ? '🟢' : avg <= 40 ? '🔴' : '🟡';
+  const gTxt = avg >= 70 ? 'SENTIMENT TRÈS HAUSSIER' : avg >= 60 ? 'SENTIMENT HAUSSIER' : avg >= 45 ? 'SENTIMENT NEUTRE / MIXTE' : avg >= 30 ? 'SENTIMENT BAISSIER' : 'SENTIMENT TRÈS BAISSIER';
   const gv = document.getElementById('sentimentGlobalVerdict');
   if(gv) {
     gv.innerHTML = gIcon + ' ' + gTxt + (window._gsRatio ? ' <span style="font-size:9px;margin-left:6px;padding:2px 6px;border-radius:8px;background:rgba(240,180,41,0.1);border:1px solid rgba(240,180,41,0.2);color:var(--gold);">AU/AG: '+window._gsRatio.toFixed(1)+'</span>' : '') + ' <span style="font-family:JetBrains Mono,monospace;margin-left:8px;">'+avg+'%</span>';
-    gv.style.color = gCol;
-    gv.style.borderColor = gCol;
+    gv.style.color = gCol; gv.style.borderColor = gCol;
     gv.style.background = avg >= 60 ? 'rgba(16,217,106,0.06)' : avg <= 40 ? 'rgba(240,62,62,0.06)' : 'rgba(255,140,0,0.06)';
   }
-  
-  // Update old sentiment elements if they still exist (backward compat)
-  const goldR = results.find(r => r.pairId === 'XAUUSD');
-  const silverR = results.find(r => r.pairId === 'XAGUSD');
-  if(goldR) {
-    // old gold sentiment bar removed
-  }
-  if(silverR) {
-    // old silver sentiment bar removed
-  }
-  
-  // Store for briefing
-  window._sentimentResults = results;
-  window._sentimentAvg = avg;
-  
+  window._sentimentResults = results; window._sentimentAvg = avg;
   document.getElementById('sentimentTime').textContent = new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) + ' UTC';
 }
 
@@ -2513,107 +2207,52 @@ function getAIBiasAnalysis() {
   const price = pairPrices['XAUUSD']?.price?.toFixed(2) || '--';
   const dxy = pairPrices['DXY']?.price?.toFixed(3) || '--';
   const proScore = window._biasProScore !== undefined ? Math.round((window._biasProScore+1)/2*100)+'%' : '--';
-  const data = 'XAU/USD: ' + price + ' | DXY: ' + dxy +
-    '\nBiais Weekly: ' + (w?w.bias:'--') + ' | Daily: ' + (d?d.bias:'--') + ' | H1: ' + (h1?h1.bias:'--') +
-    '\nEMA200 Daily: ' + (d?.above?'AU-DESSUS':'EN-DESSOUS') + ' | EMA200 H1: ' + (h1?.above?'AU-DESSUS':'EN-DESSOUS') +
-    '\nStructure D: HH=' + (d?.hh?'Oui':'Non') + ' HL=' + (d?.hl?'Oui':'Non') +
-    '\nScore Pro: ' + proScore;
-  callClaude(
-    'Analyste technique Gold. Analyse le biais en francais (max 120 mots):\n' + data + '\nDonne: 1) Biais dominant 2) Confluences 3) Zones a surveiller 4) Risque principal',
-    'aiAnalysisText', 'aiBiasBtn', '\ud83e\udde0 Analyser avec l\'IA'
-  );
+  const data = 'XAU/USD: ' + price + ' | DXY: ' + dxy + '\nBiais Weekly: ' + (w?w.bias:'--') + ' | Daily: ' + (d?d.bias:'--') + ' | H1: ' + (h1?h1.bias:'--') + '\nEMA200 Daily: ' + (d?.above?'AU-DESSUS':'EN-DESSOUS') + ' | EMA200 H1: ' + (h1?.above?'AU-DESSUS':'EN-DESSOUS') + '\nStructure D: HH=' + (d?.hh?'Oui':'Non') + ' HL=' + (d?.hl?'Oui':'Non') + '\nScore Pro: ' + proScore;
+  callClaude('Analyste technique Gold. Analyse le biais en francais (max 120 mots):\n' + data + '\nDonne: 1) Biais dominant 2) Confluences 3) Zones a surveiller 4) Risque principal','aiAnalysisText', 'aiBiasBtn', '🧠 Analyser avec l\'IA');
 }
 
 function getAISentimentAnalysis() {
   const results = window._sentimentResults;
   if(!results || !results.length) { alert('Calcule le sentiment d\'abord.'); return; }
   const data = results.map(r => r.sym + ': ' + r.total + '% (RSI:' + r.rsi + ' Mom:' + r.momentum.toFixed(2) + '% EMA20:' + (r.emaAbove20?'OK':'NO') + ' Vol:' + r.volTrend.toFixed(0) + '%)').join('\n');
-  callClaude(
-    'Analyste march\u00e9. Analyse le sentiment en fran\u00e7ais (max 100 mots):\n' + data + '\nDonne: 1) Synth\u00e8se sentiment 2) Signal dominant 3) Attention particuli\u00e8re',
-    'aiSentimentText', 'aiSentimentBtn', '\ud83e\udde0 Analyser Sentiment'
-  );
+  callClaude('Analyste marché. Analyse le sentiment en français (max 100 mots):\n' + data + '\nDonne: 1) Synthèse sentiment 2) Signal dominant 3) Attention particulière','aiSentimentText', 'aiSentimentBtn', '🧠 Analyser Sentiment');
 }
 
 // ═══════════════════════════════════════════
-
-// ==========================================
-
-// ==========================================
-// FIBONACCI AUTO RETRACEMENTS
-// ==========================================
+// FIBONACCI + ATR
+// ═══════════════════════════════════════════
 function calcFibonacci(highs, lows, closes) {
   if(highs.length < 3) return;
-  // Find swing high and swing low in last 30 days
   const len = Math.min(60, highs.length);
-  const recentHighs = highs.slice(-len);
-  const recentLows = lows.slice(-len);
-  const recentCloses = closes.slice(-len);
-  
-  let swingHigh = -Infinity, swingLow = Infinity;
-  let shIdx = 0, slIdx = 0;
-  for(let i = 0; i < len; i++) {
-    if(recentHighs[i] > swingHigh) { swingHigh = recentHighs[i]; shIdx = i; }
-    if(recentLows[i] < swingLow) { swingLow = recentLows[i]; slIdx = i; }
-  }
-  
-  const range = swingHigh - swingLow;
-  if(range < 1) return;
-  
-  // Determine direction: if swing high came after swing low = uptrend (retrace down)
+  const recentHighs = highs.slice(-len); const recentLows = lows.slice(-len);
+  let swingHigh = -Infinity, swingLow = Infinity; let shIdx = 0, slIdx = 0;
+  for(let i = 0; i < len; i++) { if(recentHighs[i] > swingHigh) { swingHigh = recentHighs[i]; shIdx = i; } if(recentLows[i] < swingLow) { swingLow = recentLows[i]; slIdx = i; } }
+  const range = swingHigh - swingLow; if(range < 1) return;
   const uptrend = shIdx > slIdx;
-  const levels = [0.236, 0.382, 0.5, 0.618, 0.786];
-  const ids = ['fib236','fib382','fib500','fib618','fib786'];
-  
+  const levels = [0.236, 0.382, 0.5, 0.618, 0.786]; const ids = ['fib236','fib382','fib500','fib618','fib786'];
   levels.forEach((lvl, idx) => {
-    let price;
-    if(uptrend) {
-      price = swingHigh - (range * lvl);
-    } else {
-      price = swingLow + (range * lvl);
-    }
+    let price = uptrend ? swingHigh - (range * lvl) : swingLow + (range * lvl);
     const el = document.getElementById(ids[idx]);
-    if(el) {
-      el.textContent = price.toFixed(2);
-      // Highlight if current price is within 1% of this level
-      const cp = pairPrices['XAUUSD']?.price;
-      if(cp && Math.abs(cp - price) / cp < 0.01) {
-        el.style.color = 'var(--gold)';
-        el.style.fontWeight = '900';
-        el.parentElement.style.background = 'rgba(240,180,41,0.08)';
-        el.parentElement.style.borderLeftColor = 'var(--gold)';
-      } else {
-        el.style.fontWeight = '';
-        el.parentElement.style.background = '';
-      }
-    }
+    if(el) { el.textContent = price.toFixed(2); const cp = pairPrices['XAUUSD']?.price; if(cp && Math.abs(cp - price) / cp < 0.01) { el.style.color = 'var(--gold)'; el.style.fontWeight = '900'; el.parentElement.style.background = 'rgba(240,180,41,0.08)'; el.parentElement.style.borderLeftColor = 'var(--gold)'; } else { el.style.fontWeight = ''; el.parentElement.style.background = ''; } }
   });
-  
   const ctx = document.getElementById('fibContext');
-  if(ctx) {
-    ctx.innerHTML = (uptrend ? '&#x2191;' : '&#x2193;') + ' Swing H: ' + swingHigh.toFixed(0) + ' / L: ' + swingLow.toFixed(0) + ' (' + len + 'j Daily)' +
-      '<br><span style="color:var(--purple,#a78bfa);">' + (uptrend ? 'Retracement baissier depuis le sommet' : 'Retracement haussier depuis le creux') + '</span>';
-  }
+  if(ctx) { ctx.innerHTML = (uptrend ? '↑' : '↓') + ' Swing H: ' + swingHigh.toFixed(0) + ' / L: ' + swingLow.toFixed(0) + ' (' + len + 'j Daily)<br><span style="color:var(--purple,#a78bfa);">' + (uptrend ? 'Retracement baissier depuis le sommet' : 'Retracement haussier depuis le creux') + '</span>'; }
   window._fibData = { swingHigh, swingLow, uptrend };
 }
 
 function calcATR(highs, lows, closes, period) {
   if(highs.length < period + 1) return null;
-  const trs = [];
-  for(let i = 1; i < highs.length; i++) {
-    const tr = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i-1]), Math.abs(lows[i] - closes[i-1]));
-    trs.push(tr);
-  }
+  const trs = []; for(let i = 1; i < highs.length; i++) { trs.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i-1]), Math.abs(lows[i] - closes[i-1]))); }
   if(trs.length < period) return null;
   let atr = trs.slice(0, period).reduce((a,b) => a+b, 0) / period;
   for(let i = period; i < trs.length; i++) { atr = (atr * (period - 1) + trs[i]) / period; }
   return atr;
 }
+
 function updateATR(data, decimals) {
   if(!data) return;
-  const q = data.indicators.quote[0];
-  const highs = q.high.filter(x => x), lows = q.low.filter(x => x), closes = q.close.filter(x => x);
-  const atr = calcATR(highs, lows, closes, 14);
-  if(!atr) return;
+  const q = data.indicators.quote[0]; const highs = q.high.filter(x => x), lows = q.low.filter(x => x), closes = q.close.filter(x => x);
+  const atr = calcATR(highs, lows, closes, 14); if(!atr) return;
   document.getElementById('atrBox').style.display = 'flex';
   document.getElementById('atrValue').textContent = atr.toFixed(decimals || 2);
   document.getElementById('atrStop').textContent = 'Stop: ' + (atr * 1.5).toFixed(decimals || 2);
@@ -2624,142 +2263,97 @@ function updateATR(data, decimals) {
   else { ve.textContent = 'BASSE VOLAT.'; ve.style.color = 'var(--green)'; }
 }
 
-// updateFibonacci removed (dead code)
-
 async function loadTIPS() {
   try {
-    const data = await fetchYahooCached('^TNX', '5d', '1d');
-    if(!data) return;
-    const closes = data.indicators.quote[0].close.filter(x => x);
-    if(closes.length < 2) return;
+    const data = await fetchYahooCached('^TNX', '5d', '1d'); if(!data) return;
+    const closes = data.indicators.quote[0].close.filter(x => x); if(closes.length < 2) return;
     const y = closes[closes.length-1], py = closes[closes.length-2], chg = y - py;
-    const bar = document.getElementById('priceBar');
-    const btn = document.getElementById('morePairsBtn');
+    const bar = document.getElementById('priceBar'); const btn = document.getElementById('morePairsBtn');
     let tp = document.getElementById('tipsPill');
     if(!tp) { tp = document.createElement('div'); tp.className = 'tips-pill'; tp.id = 'tipsPill'; bar.insertBefore(tp, btn); }
     let sig = 'NEUTRE', sc = 'tsneutral';
-    if(chg < -0.05) { sig = 'GOLD +'; sc = 'gold-pos'; }
-    else if(chg < -0.02) { sig = 'GOLD FAV.'; sc = 'gold-pos'; }
-    else if(chg > 0.05) { sig = 'GOLD -'; sc = 'gold-neg'; }
-    else if(chg > 0.02) { sig = 'GOLD PRESS.'; sc = 'gold-neg'; }
+    if(chg < -0.05) { sig = 'GOLD +'; sc = 'gold-pos'; } else if(chg < -0.02) { sig = 'GOLD FAV.'; sc = 'gold-pos'; } else if(chg > 0.05) { sig = 'GOLD -'; sc = 'gold-neg'; } else if(chg > 0.02) { sig = 'GOLD PRESS.'; sc = 'gold-neg'; }
     tp.innerHTML = '<span class="tips-label">US10Y</span><span class="tips-val">' + y.toFixed(2) + '%</span><span class="tips-label" style="font-size:7px;">' + (chg >= 0 ? '+' : '') + chg.toFixed(3) + '</span><span class="tips-signal ' + sc + '">' + sig + '</span>';
   } catch(e) { console.log('TIPS err:', e); }
 }
+
+// ═══════════════════════════════════════════
+// ALERTES DE PRIX
+// ═══════════════════════════════════════════
 let priceAlerts = JSON.parse(localStorage.getItem('xaumitri49_alerts') || '[]');
-// Migrate old alerts without pair field
 priceAlerts = priceAlerts.map(a => { if(!a.pair) a.pair = 'XAUUSD'; return a; });
 localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
 const PAIR_LABELS = { XAUUSD:'XAU/USD', XAGUSD:'XAG/USD', DXY:'DXY', SPX500:'SPX500' };
 const PAIR_COLORS = { XAUUSD:'var(--gold)', XAGUSD:'var(--silver)', DXY:'var(--blue)', SPX500:'#34d399' };
 
 function renderAlerts() {
-  const l = document.getElementById('alertsList');
-  if(!l) return;
+  const l = document.getElementById('alertsList'); if(!l) return;
   if(!priceAlerts.length) { l.innerHTML = '<div style="font-size:9px;color:var(--text3);text-align:center;padding:4px;">Aucune alerte</div>'; return; }
   l.innerHTML = priceAlerts.map(function(a, i) {
-    const trig = a.triggered;
-    const pair = a.pair || 'XAUUSD';
-    const dirTxt = a.dir === 'above' ? '&#8805;' : '&#8804;';
-    const pairLabel = PAIR_LABELS[pair] || pair;
-    const pairColor = PAIR_COLORS[pair] || 'var(--text1)';
+    const trig = a.triggered; const pair = a.pair || 'XAUUSD';
+    const dirTxt = a.dir === 'above' ? '≥' : '≤';
+    const pairLabel = PAIR_LABELS[pair] || pair; const pairColor = PAIR_COLORS[pair] || 'var(--text1)';
     const bg = trig ? 'rgba(16,217,106,0.1);border:1px solid rgba(16,217,106,0.3)' : 'var(--bg3);border:1px solid var(--border)';
     const statusTxt = trig ? ' <span style="font-size:7px;color:var(--green);font-weight:700;">TOUCHE</span>' : '';
-    const cp = pairPrices[pair]?.price;
-    const dec = pair === 'XAGUSD' ? 3 : pair === 'DXY' ? 3 : 2;
+    const cp = pairPrices[pair]?.price; const dec = pair === 'XAGUSD' ? 3 : pair === 'DXY' ? 3 : 2;
     const dist = cp ? Math.abs(cp - a.price).toFixed(dec) : '?';
     const distTxt = trig ? '' : ' <span style="font-size:8px;color:rgba(255,255,255,0.5);">(' + dist + ' pts)</span>';
-    return '<div style="display:flex;align-items:center;gap:5px;padding:4px 6px;border-radius:4px;margin-bottom:3px;' + bg + ';" id="alert-' + i + '">' +
-      '<span style="font-size:8px;font-weight:700;color:' + pairColor + ';min-width:48px;">' + pairLabel + '</span>' +
-      '<span style="font-size:10px;font-weight:700;font-family:JetBrains Mono,monospace;color:var(--text1);' + (trig ? 'text-decoration:line-through;opacity:0.5;' : '') + '">' + a.price.toFixed(dec) + '</span>' +
-      '<span style="font-size:9px;color:' + (a.dir === 'above' ? 'var(--green)' : 'var(--red)') + ';">' + dirTxt + '</span>' +
-      statusTxt + distTxt +
-      '<span style="margin-left:auto;cursor:pointer;color:var(--text3);font-size:12px;" onclick="removePriceAlert(' + i + ')">&times;</span>' +
-    '</div>';
+    return '<div style="display:flex;align-items:center;gap:5px;padding:4px 6px;border-radius:4px;margin-bottom:3px;' + bg + ';" id="alert-' + i + '"><span style="font-size:8px;font-weight:700;color:' + pairColor + ';min-width:48px;">' + pairLabel + '</span><span style="font-size:10px;font-weight:700;font-family:JetBrains Mono,monospace;color:var(--text1);' + (trig ? 'text-decoration:line-through;opacity:0.5;' : '') + '">' + a.price.toFixed(dec) + '</span><span style="font-size:9px;color:' + (a.dir === 'above' ? 'var(--green)' : 'var(--red)') + ';">' + dirTxt + '</span>' + statusTxt + distTxt + '<span style="margin-left:auto;cursor:pointer;color:var(--text3);font-size:12px;" onclick="removePriceAlert(' + i + ')">&times;</span></div>';
   }).join('');
 }
 
 function addPriceAlert() {
-  const inp = document.getElementById('alertPriceInput');
-  const pairSel = document.getElementById('alertPairSelect');
-  const p = parseFloat(inp.value);
-  if(!p || p <= 0) return;
-  const pair = pairSel ? pairSel.value : 'XAUUSD';
-  const cp = pairPrices[pair]?.price || 0;
-  priceAlerts.push({ pair: pair, price: p, dir: p > cp ? 'above' : 'below', triggered: false });
+  const inp = document.getElementById('alertPriceInput'); const pairSel = document.getElementById('alertPairSelect');
+  const p = parseFloat(inp.value); if(!p || p <= 0) return;
+  const pair = pairSel ? pairSel.value : 'XAUUSD'; const cp = pairPrices[pair]?.price || 0;
+  priceAlerts.push({ pair, price: p, dir: p > cp ? 'above' : 'below', triggered: false });
   localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
-  inp.value = '';
-  renderAlerts();
+  inp.value = ''; renderAlerts();
   if('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
 }
 
-function removePriceAlert(i) {
-  priceAlerts.splice(i, 1);
-  localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
-  renderAlerts();
-}
+function removePriceAlert(i) { priceAlerts.splice(i, 1); localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts)); renderAlerts(); }
 
 function playAlertSound() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    function beep(freq, start, dur) {
-      const o = ctx.createOscillator(); const g = ctx.createGain();
-      o.connect(g); g.connect(ctx.destination);
-      o.frequency.value = freq; o.type = 'sine';
-      g.gain.setValueAtTime(0.5, ctx.currentTime + start);
-      g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + start + dur);
-      o.start(ctx.currentTime + start); o.stop(ctx.currentTime + start + dur);
-    }
-    beep(880, 0, 0.3); beep(1100, 0.35, 0.3); beep(880, 0.7, 0.3); beep(1100, 1.05, 0.4);
-  } catch(e) {}
+  try { const ctx = new (window.AudioContext || window.webkitAudioContext)(); function beep(freq, start, dur) { const o = ctx.createOscillator(); const g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.frequency.value = freq; o.type = 'sine'; g.gain.setValueAtTime(0.5, ctx.currentTime + start); g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + start + dur); o.start(ctx.currentTime + start); o.stop(ctx.currentTime + start + dur); } beep(880, 0, 0.3); beep(1100, 0.35, 0.3); beep(880, 0.7, 0.3); beep(1100, 1.05, 0.4); } catch(e) {}
 }
 
 function checkPriceAlerts() {
-  let anyTriggered = false;
-  let triggeredNames = [];
+  let anyTriggered = false; let triggeredNames = [];
   priceAlerts.forEach(function(a) {
-    if(a.triggered) return;
-    const pair = a.pair || 'XAUUSD';
-    const cp = pairPrices[pair]?.price;
-    if(!cp) return;
+    if(a.triggered) return; const pair = a.pair || 'XAUUSD'; const cp = pairPrices[pair]?.price; if(!cp) return;
     const hit = (a.dir === 'above' && cp >= a.price) || (a.dir === 'below' && cp <= a.price);
-    if(hit) {
-      a.triggered = true;
-      anyTriggered = true;
-      triggeredNames.push((PAIR_LABELS[pair] || pair) + ' @ ' + a.price.toFixed(2));
-    }
+    if(hit) { a.triggered = true; anyTriggered = true; triggeredNames.push((PAIR_LABELS[pair] || pair) + ' @ ' + a.price.toFixed(2)); }
   });
   if(anyTriggered) {
-    localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts));
-    renderAlerts();
-    playAlertSound();
-    if('Notification' in window && Notification.permission === 'granted') {
-      new Notification('XauMitri49 Alerte', { body: triggeredNames.join(', '), tag: 'xaumitri49-' + Date.now() });
-    }
+    localStorage.setItem('xaumitri49_alerts', JSON.stringify(priceAlerts)); renderAlerts(); playAlertSound();
+    if('Notification' in window && Notification.permission === 'granted') new Notification('XauMitri49 Alerte', { body: triggeredNames.join(', '), tag: 'xaumitri49-' + Date.now() });
   }
 }
 
-
-// INIT
 // ═══════════════════════════════════════════
+// INIT — 🔧 FIX: diagnostic stockage + UI clé API
+// ═══════════════════════════════════════════
+diagStorage(); // Log l'état du stockage au démarrage
+updateApiKeyUI(); // Met à jour le bouton API dans la topbar
+
 if(API_KEY) {
+  console.log('[XauMitri49] ✅ Clé API trouvée au démarrage:', API_KEY.slice(0,15) + '...');
   const t1 = document.getElementById('aiAnalysisText'); if(t1 && t1.textContent.includes('Active ta')) t1.textContent = '🔑 Clé API active. Clique pour analyser.';
   const t2 = document.getElementById('aiSentimentText'); if(t2 && t2.textContent.includes('Active ta')) t2.textContent = '🔑 Clé API active. Clique pour analyser.';
+} else {
+  console.log('[XauMitri49] ⚠️ Pas de clé API trouvée au démarrage');
 }
-renderPriceBar(); // initial empty render
+
+renderPriceBar();
 updateClock();
-loadPrices(); // loads everything in parallel
+loadPrices();
 checkCachedBriefing();
 checkIdealZone();
 renderAlerts();
 
-// Refresh prices every 60s, full reload every 5min
 setInterval(loadPrices, 60000);
 setInterval(checkPriceAlerts, 15000);
-
-// Set default date for trade form
-
 </script>
-
-
 </body>
 </html>
