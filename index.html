@@ -10,7 +10,10 @@
 <meta name="theme-color" content="#f0b429">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://api.allorigins.win">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
   --bg0: #050709;
@@ -44,7 +47,7 @@ html{scroll-behavior:smooth;}
 body{
   background:var(--bg0);
   color:var(--text);
-  font-family:'Outfit',sans-serif;
+  font-family:'Outfit',system-ui,-apple-system,sans-serif;
   min-height:100vh;
   overflow-x:hidden;
 }
@@ -1754,14 +1757,21 @@ async function fetchYahoo(symbol, range='5d', interval='1d') {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=${interval}&range=${range}`;
     const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-    const r = await fetch(proxy);
+    // Timeout 8s pour mobile (évite les freeze)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const r = await fetch(proxy, { signal: controller.signal });
+    clearTimeout(timeout);
     const d = await r.json();
     return JSON.parse(d.contents).chart.result[0];
-  } catch(e){ return null; }
+  } catch(e){
+    if(e.name === 'AbortError') { dbg('⏱️ Timeout Yahoo: ' + symbol, 'warn'); }
+    return null;
+  }
 }
 
 const _apiCache = {};
-const CACHE_TTL = 2 * 60 * 1000;
+const CACHE_TTL = 5 * 60 * 1000; // 5 min — réduit les appels proxy sur mobile
 async function fetchYahooCached(sym, range, interval) {
   const key = sym+'_'+range+'_'+interval;
   const now = Date.now();
@@ -1775,6 +1785,9 @@ function fmt(v,d=2){ return v!=null ? parseFloat(v).toFixed(d) : '—'; }
 
 async function loadPrices() {
   const pairDataMap = {};
+  const startT = Date.now();
+  
+  // PHASE 1: Charger les prix en parallèle (priorité haute)
   const [gw] = await Promise.all([
     fetchYahooCached('GC=F','4wk','1wk'),
     ...ALL_PAIRS.map(async p => {
@@ -1792,7 +1805,10 @@ async function loadPrices() {
       } catch(e) {}
     })
   ]);
+  
+  // Afficher les prix IMMÉDIATEMENT
   renderPriceBar();
+  dbg('💰 Prix chargés en ' + (Date.now()-startT) + 'ms', 'ok');
 
   const gd = pairDataMap['XAUUSD'];
   if(gd) {
@@ -1814,23 +1830,30 @@ async function loadPrices() {
       document.getElementById('lvlWL').textContent = fmt(wl[wl.length-1]);
     }
     updateATR(gd, 2);
-    try {
-      const fibData = await fetchYahooCached('GC=F', '60d', '1d');
-      if(fibData) {
-        const fq = fibData.indicators.quote[0];
-        calcFibonacci(fq.high.filter(x=>x), fq.low.filter(x=>x), fq.close.filter(x=>x));
-      }
-    } catch(e) { calcFibonacci(highs, lows, closes); }
     checkPriceAlerts();
   }
   document.getElementById('biasTime').textContent = new Date().toLocaleTimeString('fr-FR',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC';
-  Promise.all([
-    computeBias(),
-    computeBiasProV2(),
-    computeAllSentiment(),
-    loadVolumes(),
-    loadTIPS()
-  ]).catch(e => console.log('Parallel load error:', e));
+  
+  // PHASE 2: Calculs lourds DIFFÉRÉS (ne bloque pas l'affichage)
+  setTimeout(() => {
+    if(gd) {
+      fetchYahooCached('GC=F', '60d', '1d').then(fibData => {
+        if(fibData) {
+          const fq = fibData.indicators.quote[0];
+          calcFibonacci(fq.high.filter(x=>x), fq.low.filter(x=>x), fq.close.filter(x=>x));
+        }
+      }).catch(() => {});
+    }
+    Promise.all([
+      computeBias(),
+      computeBiasProV2(),
+      computeAllSentiment(),
+      loadVolumes(),
+      loadTIPS()
+    ]).then(() => {
+      dbg('📊 Calculs complets en ' + (Date.now()-startT) + 'ms', 'ok');
+    }).catch(e => console.log('Parallel load error:', e));
+  }, 100);
 }
 
 function updateMacroRiskScore() {
@@ -2470,13 +2493,15 @@ if(API_KEY) {
 
 renderPriceBar();
 updateClock();
-loadPrices();
+dbg('🚀 Chargement des prix...', 'ok');
+const _loadStart = Date.now();
+loadPrices().then(() => dbg('✅ Init complet en ' + (Date.now()-_loadStart) + 'ms', 'ok'));
 checkCachedBriefing();
 checkIdealZone();
 renderAlerts();
 
-setInterval(loadPrices, 60000);
-setInterval(checkPriceAlerts, 15000);
+setInterval(loadPrices, 45000);  // Prix toutes les 45s
+setInterval(checkPriceAlerts, 20000);
 </script>
 </body>
 </html>
