@@ -1431,7 +1431,7 @@ async function claudeAPI(prompt, maxTokens=400) {
   }
 }
 
-let goldData = null, silverData = null, dxyData = null;
+// pairPrices declared above with pairs config
 let newsData = [];
 let biasData = { h1: null, d: null, w: null };
 let currentNewsFilter = 'all';
@@ -1588,16 +1588,10 @@ function updateClock() {
   const now = new Date();
   const utc = now.toUTCString().match(/(\d+:\d+:\d+)/)[1];
   document.getElementById('clock').textContent = utc + ' UTC';
-  updateSessions(now);
-  updateKillzones(now);
+  updateSessionsSimple();
 }
 setInterval(updateClock, 1000);
 
-function updateSessions(now) {
-  updateSessionsSimple();
-}
-
-function updateKillzones(now) {}
 
 // ═══════════════════════════════════════════
 // SESSIONS SIMPLIFIÉES
@@ -1806,11 +1800,11 @@ async function changeBiasAsset(id) {
   try {
     // Fetch in parallel with fallback
     let [d300, h1d] = await Promise.all([
-      fetchYahoo(yahoo,'300d','1d').catch(() => null),
-      fetchYahoo(yahoo,'60d','1h').catch(() => null)
+      fetchYahooCached(yahoo,'300d','1d').catch(() => null),
+      fetchYahooCached(yahoo,'60d','1h').catch(() => null)
     ]);
     // Fallback: shorter range if 300d failed
-    if(!d300) d300 = await fetchYahoo(yahoo,'100d','1d').catch(() => null);
+    if(!d300) d300 = await fetchYahooCached(yahoo,'100d','1d').catch(() => null);
     
     const results = {};
     
@@ -1906,9 +1900,8 @@ async function loadPrices() {
   const pairsToLoad = isMobile ? ALL_PAIRS.filter(p => favorites.includes(p.id)) : ALL_PAIRS;
   
   // PHASE 1: Charger les prix en parallèle (priorité haute)
-  const [gw] = await Promise.all([
-    fetchYahooCached('GC=F','4wk','1wk'),
-    ...pairsToLoad.map(async p => {
+  await Promise.all(
+    pairsToLoad.map(async p => {
       try {
         const d = await fetchYahooCached(p.yahoo, '5d', '1d');
         if(d) {
@@ -1922,45 +1915,45 @@ async function loadPrices() {
         }
       } catch(e) {}
     })
-  ]);
+  );
   
   // Afficher les prix IMMÉDIATEMENT
   renderPriceBar();
   dbg('💰 Prix chargés en ' + (Date.now()-startT) + 'ms', 'ok');
 
-  // Store pairDataMap globally for updateLevels
+  // Store pairDataMap globally
   window._pairDataMap = pairDataMap;
-  window._weeklyData = gw;
   
-  // Update levels for currently selected pair
-  await updateLevels();
+  // Update levels for currently selected pair (includes weekly + Fib + ATR)
+  updateLevels();
   
   checkPriceAlerts();
   document.getElementById('biasTime').textContent = new Date().toLocaleTimeString('fr-FR',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC';
   
   // PHASE 2: Calculs lourds DIFFÉRÉS (ne bloque pas l'affichage)
-  // Mobile: délai plus long pour laisser l'UI respirer
-  const phase2Delay = window.innerWidth <= 640 ? 500 : 100;
-  setTimeout(() => {
-    // Fibonacci for selected levels pair
-    const lvlPair = document.getElementById('levelsAsset')?.value || 'GC';
-    const lvlYahoo = BIAS_YAHOO[lvlPair] || 'GC=F';
-    const lvlDec = ALL_PAIRS.find(p=>p.id===lvlPair)?.decimals || 2;
-    fetchYahooCached(lvlYahoo, '60d', '1d').then(fibData => {
-      if(fibData) {
-        const fq = fibData.indicators.quote[0];
-        calcFibonacci(fq.high.filter(x=>x), fq.low.filter(x=>x), fq.close.filter(x=>x), lvlDec);
+  const phase2Delay = isMobile ? 600 : 100;
+  setTimeout(async () => {
+    try {
+      if(isMobile) {
+        // MOBILE: stagger computations to prevent UI freeze
+        await Promise.all([computeBias(), loadTIPS()]).catch(()=>{});
+        // Let UI breathe
+        await new Promise(r => setTimeout(r, 200));
+        await computeBiasProV2().catch(()=>{});
+        await new Promise(r => setTimeout(r, 200));
+        await Promise.all([loadVolumes(), computeAllSentiment()]).catch(()=>{});
+      } else {
+        // DESKTOP: all parallel (fast)
+        await Promise.all([
+          computeBias(),
+          computeBiasProV2(),
+          computeAllSentiment(),
+          loadVolumes(),
+          loadTIPS()
+        ]);
       }
-    }).catch(() => {});
-    Promise.all([
-      computeBias(),
-      computeBiasProV2(),
-      computeAllSentiment(),
-      loadVolumes(),
-      loadTIPS()
-    ]).then(() => {
       dbg('📊 Calculs complets en ' + (Date.now()-startT) + 'ms', 'ok');
-    }).catch(e => console.log('Parallel load error:', e));
+    } catch(e) { dbg('⚠️ Phase2 err: '+(e.message||e), 'err'); }
   }, phase2Delay);
 }
 
@@ -2189,12 +2182,7 @@ function checkCachedBriefing() {
   }
 }
 
-function checkIdealZone() {}
-setInterval(checkIdealZone, 30000);
-function updateChecklistAuto() {}
-function toggleCheck() {}
-function updateChecklistVerdict() {}
-function resetChecklist() {}
+// (removed empty placeholder functions)
 
 // PINE SCRIPT STYLE BIAS
 function detectPivots(highs, lows, lookback) {
@@ -2346,9 +2334,24 @@ function computeRiskForPair(pairId) {
 async function loadVolumes() {
   const vl = document.getElementById('volumeList'); if(!vl) return;
   vl.innerHTML = '<div style="text-align:center;padding:10px;font-size:10px;color:var(--text3);"><span class="spin">⟳</span> Chargement...</div>';
-  const pairs=ALL_PAIRS.map(p=>({id:p.id,sym:p.sym,yahoo:p.yahoo,color:p.color}));
-  const vd=[]; let mx=0;
-  for(const p of pairs){try{const d=await fetchYahooCached(p.yahoo,'5d','1d');if(d){const vs=d.indicators.quote[0].volume.filter(x=>x);const tv=vs[vs.length-1]||0,pv=vs[vs.length-2]||tv;const vc=pv?((tv-pv)/pv*100):0;const av=vs.length>1?vs.slice(0,-1).reduce((a,b)=>a+b,0)/(vs.length-1):tv;vd.push({...p,vol:tv,volChg:vc,avgVol:av,ratio:av?tv/av:1});if(tv>mx)mx=tv;}}catch(e){}}
+  // Mobile: only favorites for performance
+  const isMob = window.innerWidth <= 640;
+  const pairs = isMob ? ALL_PAIRS.filter(p => favorites.includes(p.id)).map(p=>({id:p.id,sym:p.sym,yahoo:p.yahoo,color:p.color})) : ALL_PAIRS.map(p=>({id:p.id,sym:p.sym,yahoo:p.yahoo,color:p.color}));
+  
+  // PARALLEL fetch all volumes at once
+  const rawVols = await Promise.all(pairs.map(async p => {
+    try {
+      const d = await fetchYahooCached(p.yahoo,'5d','1d');
+      if(!d) return null;
+      const vs = d.indicators.quote[0].volume.filter(x=>x);
+      const tv = vs[vs.length-1]||0, pv = vs[vs.length-2]||tv;
+      const vc = pv ? ((tv-pv)/pv*100) : 0;
+      const av = vs.length>1 ? vs.slice(0,-1).reduce((a,b)=>a+b,0)/(vs.length-1) : tv;
+      return {...p, vol:tv, volChg:vc, avgVol:av, ratio:av?tv/av:1};
+    } catch(e) { return null; }
+  }));
+  const vd = rawVols.filter(Boolean);
+  let mx = 0; vd.forEach(v => { if(v.vol > mx) mx = v.vol; });
   if(!vd.length){vl.innerHTML='<div style="text-align:center;padding:10px;font-size:10px;color:var(--text3);">⚠️ Volumes indisponibles</div>';return;}
   vl.innerHTML=vd.map(v=>{const bp=mx?Math.round(v.vol/mx*100):0;const cc=v.volChg>=0?'up':'down';const rl=v.ratio>=1.5?'🔥 Fort':v.ratio>=1?'✅ Normal':'📉 Faible';const rc=v.ratio>=1.5?'var(--green)':v.ratio>=1?'var(--text2)':'var(--red)';return '<div class="vol-row"><span class="vol-pair" style="color:'+v.color+';min-width:60px;">'+v.sym+'</span><div class="vol-bar-wrap"><div class="vol-bar" style="width:'+bp+'%;background:'+v.color+';"></div></div><div style="text-align:right;min-width:80px;"><div class="vol-val">'+fmtVol(v.vol)+'</div><div class="vol-chg '+cc+'">'+(v.volChg>=0?'+':'')+v.volChg.toFixed(1)+'%</div></div><div style="min-width:55px;text-align:right;"><span style="font-size:8px;color:'+rc+';">'+rl+'</span></div></div>';}).join('');
 }
@@ -2357,13 +2360,16 @@ function fmtVol(v){if(v>=1e9)return(v/1e9).toFixed(1)+'B';if(v>=1e6)return(v/1e6
 const _ocba = changeBiasAsset;
 changeBiasAsset = async function(id) {
   await _ocba(id);
-  // Sync levels selector
+  // Fire secondary computations in parallel (non-blocking)
   const lvlSel = document.getElementById('levelsAsset');
   if(lvlSel && [...lvlSel.options].some(o => o.value === id)) {
     lvlSel.value = id;
-    await updateLevels();
   }
-  await computeBiasProV2();
+  // Don't await — let them run in background
+  Promise.all([
+    updateLevels().catch(()=>{}),
+    computeBiasProV2().catch(()=>{})
+  ]);
 };
 
 // BRIEFING OVERRIDE
@@ -2391,7 +2397,7 @@ generateBriefing = async function(mode) {
   const rl=document.getElementById('riskLabel')?.textContent||'--';
 
   // Données communes injectées
-  const dataBlock = "=== PRIX LIVE ===\n"+pi.join('\n')+"\n\n=== MARCHE ===\nDate: "+today+" | DXY: "+dxy+"\n\n=== BIAIS ("+briefingPairs[0]+") ===\nWeekly: "+wB+" | Daily: "+dB+" | H1: "+h1B+"\nEMA200 Daily: "+(dA?'AU-DESSUS':'EN-DESSOUS')+" | EMA200 H1: "+(h1A?'AU-DESSUS':'EN-DESSOUS')+"\nScore Pro: "+pS+" - Verdict: "+pV+"\n\n=== NIVEAUX GC ===\nHOD: "+hod+" | LOD: "+lod+" | Open: "+opD+"\n\n=== ANNONCES DU JOUR ===\n"+et+"\n\n=== SEMAINE ===\n"+ew+"\n\n=== COT ===\n"+cs+"\n\n=== MACRO ===\nRisk: "+rl;
+  const dataBlock = "=== PRIX LIVE ===\n"+pi.join('\n')+"\n\n=== MARCHE ===\nDate: "+today+" | DXY: "+dxy+"\n\n=== BIAIS ("+briefingPairs[0]+") ===\nWeekly: "+wB+" | Daily: "+dB+" | H1: "+h1B+"\nEMA200 Daily: "+(dA?'AU-DESSUS':'EN-DESSOUS')+" | EMA200 H1: "+(h1A?'AU-DESSUS':'EN-DESSOUS')+"\nScore Pro: "+pS+" - Verdict: "+pV+"\n\n=== NIVEAUX "+briefingPairs[0]+" ===\nHOD: "+hod+" | LOD: "+lod+" | Open: "+opD+"\n\n=== ANNONCES DU JOUR ===\n"+et+"\n\n=== SEMAINE ===\n"+ew+"\n\n=== COT ===\n"+cs+"\n\n=== MACRO ===\nRisk: "+rl;
 
   let prompt, maxTk;
 
@@ -2606,11 +2612,24 @@ async function computeSentimentForPair(pairId, yahooSym, color) {
 async function computeAllSentiment() {
   const module = document.getElementById('sentimentModule'); if(!module) return;
   module.innerHTML = '<div style="text-align:center;padding:12px;font-size:10px;color:var(--text3);"><span class="spin">⟳</span> Calcul sentiment...</div>';
-  const pairs = [{ id: 'GC', sym: 'GC', yahoo: 'GC=F', color: 'var(--gold)' },{ id: 'SI', sym: 'SI', yahoo: 'SI=F', color: 'var(--silver)' },];
-  const biasAsset = document.getElementById('biasAssetSelect')?.value;
-  if(biasAsset && biasAsset !== 'GC' && biasAsset !== 'SI') { const bp = ALL_PAIRS.find(p => p.id === biasAsset); if(bp) pairs.push({ id: bp.id, sym: bp.sym, yahoo: bp.yahoo, color: bp.color }); }
-  const results = [];
-  for(const p of pairs) { const r = await computeSentimentForPair(p.id, p.yahoo, p.color); if(r) { r.sym = p.sym; results.push(r); } }
+  
+  // Use all favorite pairs
+  const pairs = favorites.map(id => {
+    const p = ALL_PAIRS.find(x => x.id === id);
+    return p ? { id: p.id, sym: p.sym, yahoo: p.yahoo, color: p.color } : null;
+  }).filter(Boolean);
+  
+  if(!pairs.length) { module.innerHTML = '<div style="text-align:center;padding:12px;font-size:10px;color:var(--text3);">⚠️ Aucune paire favorite</div>'; return; }
+  
+  // Mobile: limit to 4 pairs max for performance
+  const isMobile = window.innerWidth <= 640;
+  const pairsToCalc = isMobile ? pairs.slice(0, 4) : pairs;
+  
+  // PARALLEL: compute all pairs at once instead of sequential
+  const rawResults = await Promise.all(
+    pairsToCalc.map(p => computeSentimentForPair(p.id, p.yahoo, p.color).then(r => { if(r) r.sym = p.sym; return r; }).catch(() => null))
+  );
+  const results = rawResults.filter(Boolean);
   if(!results.length) { module.innerHTML = '<div style="text-align:center;padding:12px;font-size:10px;color:var(--text3);">⚠️ Sentiment indisponible</div>'; return; }
   module.innerHTML = results.map(r => {
     const cls = r.total >= 60 ? 'bull' : r.total <= 40 ? 'bear' : 'neutral';
@@ -2656,7 +2675,19 @@ function getAISentimentAnalysis() {
 // ═══════════════════════════════════════════
 // NIVEAUX CLÉS DYNAMIQUES
 // ═══════════════════════════════════════════
+let _levelsTimer = null;
 async function updateLevels() {
+  // Debounce: si appelé rapidement 2 fois, ne fait qu'un seul calcul
+  if(_levelsTimer) clearTimeout(_levelsTimer);
+  return new Promise(resolve => {
+    _levelsTimer = setTimeout(async () => {
+      await _updateLevelsCore();
+      resolve();
+    }, 50);
+  });
+}
+
+async function _updateLevelsCore() {
   const pairId = document.getElementById('levelsAsset')?.value || 'GC';
   const pair = ALL_PAIRS.find(p => p.id === pairId);
   if(!pair) return;
@@ -2838,13 +2869,18 @@ if(API_KEY) {
   dbg('⚠️ Pas de clé API au démarrage', 'warn');
 }
 
-renderPriceBar();
 updateClock();
 dbg('🚀 Chargement des prix...', 'ok');
+let _isLoading = false;
+const _origLoadPrices = loadPrices;
+loadPrices = async function() {
+  if(_isLoading) return;
+  _isLoading = true;
+  try { await _origLoadPrices(); } finally { _isLoading = false; }
+};
 const _loadStart = Date.now();
 loadPrices().then(() => dbg('✅ Init complet en ' + (Date.now()-_loadStart) + 'ms', 'ok'));
 checkCachedBriefing();
-checkIdealZone();
 renderAlerts();
 
 // Mobile: intervalles plus longs pour éviter le lag
